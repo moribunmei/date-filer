@@ -418,6 +418,9 @@ def main():
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
 
+    font = QFont("Noto Sans JP", 10)
+    app.setFont(font)
+
     icon = make_app_icon()
     tray = QSystemTrayIcon(icon, app)
     tray.setToolTip("DateFiler")
