@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal, QSize
 from PyQt6.QtGui import (
     QIcon, QDragEnterEvent, QDropEvent, QColor, QPixmap,
-    QPainter, QFont, QPen, QBrush,
+    QPainter, QFont, QPen, QBrush, QPalette,
 )
 
 SETTINGS_PATH = Path(os.environ.get("APPDATA", ".")) / "DateFiler" / "settings.json"
@@ -144,12 +144,12 @@ def icon_button(icon: QIcon, tooltip: str, size: int = 36) -> QPushButton:
     btn.setToolTip(tooltip)
     btn.setStyleSheet("""
         QPushButton {
-            border: 1px solid #ddd;
+            border: 1px solid #3a3a3a;
             border-radius: 6px;
-            background: #f0f0f0;
+            background: #2a2a2a;
         }
-        QPushButton:hover { background: #e0e8f8; border-color: #4A90E2; }
-        QPushButton:pressed { background: #c8d8f0; }
+        QPushButton:hover { background: #1a2d4a; border-color: #4A90E2; }
+        QPushButton:pressed { background: #0d1f36; }
     """)
     return btn
 
@@ -161,16 +161,16 @@ class DropZone(QFrame):
 
     IDLE_STYLE = """
         QFrame {
-            border: 2px solid #ddd;
+            border: 2px solid #3a3a3a;
             border-radius: 8px;
-            background: #fafafa;
+            background: #252525;
         }
     """
     HOVER_STYLE = """
         QFrame {
             border: 2px solid #4A90E2;
             border-radius: 8px;
-            background: #e8f0fe;
+            background: #1a2d4a;
         }
     """
 
@@ -190,20 +190,20 @@ class DropZone(QFrame):
         self._name_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._name_label.setWordWrap(True)
         self._name_label.setStyleSheet(
-            "color: #222; font-size: 12px; font-weight: bold; border: none; background: transparent;"
+            "color: #e8e8e8; font-size: 12px; font-weight: bold; border: none; background: transparent;"
         )
 
         # ドロップヒント
         self._hint_label = QLabel("ここにドロップ")
         self._hint_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._hint_label.setStyleSheet(
-            "color: #ccc; font-size: 9px; border: none; background: transparent;"
+            "color: #555; font-size: 9px; border: none; background: transparent;"
         )
 
         self._date_label = QLabel()
         self._date_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._date_label.setStyleSheet(
-            "color: #aaa; font-size: 9px; border: none; background: transparent;"
+            "color: #666; font-size: 9px; border: none; background: transparent;"
         )
 
         root.addStretch()
@@ -426,7 +426,7 @@ class MainWindow(QMainWindow):
         if not folders:
             placeholder = QLabel("右下の歯車ボタンからフォルダを追加してください")
             placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            placeholder.setStyleSheet("color: #bbb; font-size: 12px; padding: 40px;")
+            placeholder.setStyleSheet("color: #555; font-size: 12px; padding: 40px;")
             self._drop_layout.addWidget(placeholder, 0, 0)
             return
 
@@ -490,6 +490,21 @@ def main():
         QFont.StyleStrategy.PreferAntialias | QFont.StyleStrategy.PreferQuality
     )
     app.setFont(font)
+
+    palette = QPalette()
+    palette.setColor(QPalette.ColorRole.Window,          QColor("#1e1e1e"))
+    palette.setColor(QPalette.ColorRole.WindowText,      QColor("#e8e8e8"))
+    palette.setColor(QPalette.ColorRole.Base,            QColor("#2a2a2a"))
+    palette.setColor(QPalette.ColorRole.AlternateBase,   QColor("#252525"))
+    palette.setColor(QPalette.ColorRole.Text,            QColor("#e8e8e8"))
+    palette.setColor(QPalette.ColorRole.Button,          QColor("#2a2a2a"))
+    palette.setColor(QPalette.ColorRole.ButtonText,      QColor("#e8e8e8"))
+    palette.setColor(QPalette.ColorRole.Highlight,       QColor("#4A90E2"))
+    palette.setColor(QPalette.ColorRole.HighlightedText, QColor("#ffffff"))
+    palette.setColor(QPalette.ColorRole.ToolTipBase,     QColor("#2a2a2a"))
+    palette.setColor(QPalette.ColorRole.ToolTipText,     QColor("#e8e8e8"))
+    palette.setColor(QPalette.ColorRole.PlaceholderText, QColor("#555555"))
+    app.setPalette(palette)
 
     icon = make_app_icon()
     tray = QSystemTrayIcon(icon, app)
