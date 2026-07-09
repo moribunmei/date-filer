@@ -133,22 +133,6 @@ def make_tray_icon_btn(size: int = 28) -> QIcon:
     return _make_icon(size, draw)
 
 
-def make_date_icon(enabled: bool, size: int = 14) -> QPixmap:
-    """日付フォルダあり/なし を示す小アイコン（PixmapをQLabelで使う）"""
-    px = QPixmap(size, size)
-    px.fill(Qt.GlobalColor.transparent)
-    p = QPainter(px)
-    p.setRenderHint(QPainter.RenderHint.Antialiasing)
-    color = QColor("#4A90E2") if enabled else QColor("#bbb")
-    p.setBrush(color)
-    p.setPen(Qt.PenStyle.NoPen)
-    p.drawEllipse(1, 1, size - 2, size - 2)
-    p.setPen(QColor("white"))
-    p.setFont(QFont("Noto Sans JP", int(size * 0.55), QFont.Weight.Bold))
-    p.drawText(0, 0, size, size, Qt.AlignmentFlag.AlignCenter, "日" if enabled else "直")
-    p.end()
-    return px
-
 
 # ---- アイコンボタンヘルパー -----------------------------------------------
 
@@ -177,14 +161,14 @@ class DropZone(QFrame):
 
     IDLE_STYLE = """
         QFrame {
-            border: 2px dashed #ccc;
+            border: 2px solid #ddd;
             border-radius: 8px;
             background: #fafafa;
         }
     """
     HOVER_STYLE = """
         QFrame {
-            border: 2px dashed #4A90E2;
+            border: 2px solid #4A90E2;
             border-radius: 8px;
             background: #e8f0fe;
         }
@@ -215,25 +199,16 @@ class DropZone(QFrame):
             "color: #ccc; font-size: 9px; border: none; background: transparent;"
         )
 
-        # 日付フォルダアイコン行
-        icon_row = QHBoxLayout()
-        icon_row.setContentsMargins(0, 0, 0, 0)
-        icon_row.setSpacing(4)
-        self._date_icon = QLabel()
-        self._date_icon.setFixedSize(14, 14)
         self._date_label = QLabel()
+        self._date_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._date_label.setStyleSheet(
-            "color: #999; font-size: 9px; border: none; background: transparent;"
+            "color: #aaa; font-size: 9px; border: none; background: transparent;"
         )
-        icon_row.addStretch()
-        icon_row.addWidget(self._date_icon)
-        icon_row.addWidget(self._date_label)
-        icon_row.addStretch()
 
         root.addStretch()
         root.addWidget(self._name_label)
         root.addWidget(self._hint_label)
-        root.addLayout(icon_row)
+        root.addWidget(self._date_label)
         root.addStretch()
 
         self.refresh()
@@ -244,8 +219,7 @@ class DropZone(QFrame):
         path = entry.get("path", "")
         use_date = entry.get("use_date_folder", True)
         self._name_label.setText(name if name else Path(path).name)
-        self._date_icon.setPixmap(make_date_icon(use_date, 14))
-        self._date_label.setText("日付フォルダ" if use_date else "直接移動")
+        self._date_label.setText("日付あり" if use_date else "日付なし")
         self.setStyleSheet(self.IDLE_STYLE)
 
     def dragEnterEvent(self, event: QDragEnterEvent):
@@ -505,6 +479,9 @@ def main():
     app.setQuitOnLastWindowClosed(False)
 
     font = QFont("Noto Sans JP", 10)
+    font.setStyleStrategy(
+        QFont.StyleStrategy.PreferAntialias | QFont.StyleStrategy.PreferQuality
+    )
     app.setFont(font)
 
     icon = make_app_icon()
