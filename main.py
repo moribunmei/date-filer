@@ -179,6 +179,7 @@ class DropZone(QFrame):
         self.folder_entry = folder_entry
         self.setAcceptDrops(True)
         self.setFixedSize(ZONE_W, ZONE_H)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(8, 6, 8, 6)
@@ -235,6 +236,12 @@ class DropZone(QFrame):
         paths = [u.toLocalFile() for u in event.mimeData().urls() if u.isLocalFile()]
         if paths:
             self.files_dropped.emit(paths)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            path = self.folder_entry.get("path", "")
+            if path and os.path.isdir(path):
+                os.startfile(path)
 
 
 # ---- フォルダ追加・編集ダイアログ ------------------------------------------
