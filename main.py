@@ -11,13 +11,16 @@ from PyQt6.QtWidgets import (
     QSystemTrayIcon, QMenu, QDialog, QFrame,
     QScrollArea, QLineEdit, QGridLayout, QDialogButtonBox, QCheckBox,
 )
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QIcon, QDragEnterEvent, QDropEvent, QColor, QPixmap, QPainter, QFont
-
+from PyQt6.QtCore import Qt, pyqtSignal, QSize
+from PyQt6.QtGui import (
+    QIcon, QDragEnterEvent, QDropEvent, QColor, QPixmap,
+    QPainter, QFont, QPen, QBrush,
+)
 
 SETTINGS_PATH = Path(os.environ.get("APPDATA", ".")) / "DateFiler" / "settings.json"
-ZONE_SIZE = 200  # ドロップゾーンの固定サイズ (px)
-GRID_COLS = 3    # グリッドの列数
+ZONE_W = 150
+ZONE_H = 100
+GRID_COLS = 4
 
 # ---- 設定の読み書き --------------------------------------------------------
 
@@ -26,11 +29,9 @@ def load_settings() -> dict:
         with open(SETTINGS_PATH, encoding="utf-8") as f:
             data = json.load(f)
         folders = data.get("folders", [])
-        # 旧形式（文字列リスト）→ 新形式
         if folders and isinstance(folders[0], str):
             data["folders"] = [{"path": p, "name": "", "use_date_folder": True} for p in folders]
         else:
-            # use_date_folder が無いエントリを補完
             for entry in folders:
                 entry.setdefault("use_date_folder", True)
         return data
@@ -64,21 +65,109 @@ def move_file(src: str, dest_folder: str, use_date_folder: bool) -> str:
     return str(dest_path)
 
 
-# ---- システムトレイアイコン生成 -------------------------------------------
+# ---- アイコン生成ユーティリティ -------------------------------------------
 
-def make_app_icon() -> QIcon:
-    px = QPixmap(32, 32)
+def _make_icon(size: int, draw_fn) -> QIcon:
+    px = QPixmap(size, size)
     px.fill(Qt.GlobalColor.transparent)
     p = QPainter(px)
     p.setRenderHint(QPainter.RenderHint.Antialiasing)
-    p.setBrush(QColor("#4A90E2"))
-    p.setPen(Qt.PenStyle.NoPen)
-    p.drawRoundedRect(2, 2, 28, 28, 6, 6)
-    p.setPen(QColor("white"))
-    p.setFont(QFont("Arial", 12, QFont.Weight.Bold))
-    p.drawText(px.rect(), Qt.AlignmentFlag.AlignCenter, "D")
+    draw_fn(p, size)
     p.end()
     return QIcon(px)
+
+
+def make_app_icon() -> QIcon:
+    def draw(p: QPainter, s: int):
+        p.setBrush(QColor("#4A90E2"))
+        p.setPen(Qt.PenStyle.NoPen)
+        p.drawRoundedRect(2, 2, s - 4, s - 4, 6, 6)
+        p.setPen(QColor("white"))
+        p.setFont(QFont("Noto Sans JP", int(s * 0.4), QFont.Weight.Bold))
+        p.drawText(0, 0, s, s, Qt.AlignmentFlag.AlignCenter, "D")
+    return _make_icon(32, draw)
+
+
+def make_settings_icon(size: int = 28) -> QIcon:
+    """歯車アイコン"""
+    def draw(p: QPainter, s: int):
+        cx, cy, r_out, r_in = s / 2, s / 2, s * 0.42, s * 0.18
+        teeth = 8
+        import math
+        path_pts = []
+        for i in range(teeth * 2):
+            angle = math.radians(i * 360 / (teeth * 2))
+            r = r_out if i % 2 == 0 else r_out * 0.72
+            path_pts.append((cx + r * math.cos(angle), cy + r * math.sin(angle)))
+        from PyQt6.QtGui import QPolygonF
+        from PyQt6.QtCore import QPointF
+        poly = QPolygonF([QPointF(x, y) for x, y in path_pts])
+        p.setBrush(QColor("#555"))
+        p.setPen(Qt.PenStyle.NoPen)
+        p.drawPolygon(poly)
+        p.setBrush(QColor("white"))
+        p.drawEllipse(QPointF(cx, cy), r_in, r_in)
+    return _make_icon(size, draw)
+
+
+def make_tray_icon_btn(size: int = 28) -> QIcon:
+    """下矢印（トレイ格納）アイコン"""
+    def draw(p: QPainter, s: int):
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor("#555"))
+        m = s * 0.22
+        w, h = s - m * 2, s * 0.14
+        p.drawRect(int(m), int(s * 0.22), int(w), int(h))
+        from PyQt6.QtGui import QPolygonF
+        from PyQt6.QtCore import QPointF
+        cx = s / 2
+        tip_y = s * 0.82
+        arrow_w = s * 0.38
+        arrow_h = s * 0.30
+        poly = QPolygonF([
+            QPointF(cx - arrow_w, tip_y - arrow_h),
+            QPointF(cx + arrow_w, tip_y - arrow_h),
+            QPointF(cx, tip_y),
+        ])
+        p.drawPolygon(poly)
+    return _make_icon(size, draw)
+
+
+def make_date_icon(enabled: bool, size: int = 14) -> QPixmap:
+    """日付フォルダあり/なし を示す小アイコン（PixmapをQLabelで使う）"""
+    px = QPixmap(size, size)
+    px.fill(Qt.GlobalColor.transparent)
+    p = QPainter(px)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    color = QColor("#4A90E2") if enabled else QColor("#bbb")
+    p.setBrush(color)
+    p.setPen(Qt.PenStyle.NoPen)
+    p.drawEllipse(1, 1, size - 2, size - 2)
+    p.setPen(QColor("white"))
+    p.setFont(QFont("Noto Sans JP", int(size * 0.55), QFont.Weight.Bold))
+    p.drawText(0, 0, size, size, Qt.AlignmentFlag.AlignCenter, "日" if enabled else "直")
+    p.end()
+    return px
+
+
+# ---- アイコンボタンヘルパー -----------------------------------------------
+
+def icon_button(icon: QIcon, tooltip: str, size: int = 36) -> QPushButton:
+    btn = QPushButton()
+    btn.setIcon(icon)
+    btn.setIconSize(QSize(size - 8, size - 8))
+    btn.setFixedSize(size, size)
+    btn.setToolTip(tooltip)
+    btn.setStyleSheet("""
+        QPushButton {
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            background: #f0f0f0;
+        }
+        QPushButton:hover { background: #e0e8f8; border-color: #4A90E2; }
+        QPushButton:pressed { background: #c8d8f0; }
+    """)
+    return btn
 
 
 # ---- ドロップゾーン --------------------------------------------------------
@@ -88,15 +177,15 @@ class DropZone(QFrame):
 
     IDLE_STYLE = """
         QFrame {
-            border: 2px dashed #aaa;
-            border-radius: 12px;
-            background: #f5f5f5;
+            border: 2px dashed #ccc;
+            border-radius: 8px;
+            background: #fafafa;
         }
     """
     HOVER_STYLE = """
         QFrame {
             border: 2px dashed #4A90E2;
-            border-radius: 12px;
+            border-radius: 8px;
             background: #e8f0fe;
         }
     """
@@ -105,44 +194,47 @@ class DropZone(QFrame):
         super().__init__()
         self.folder_entry = folder_entry
         self.setAcceptDrops(True)
-        self.setFixedSize(ZONE_SIZE, ZONE_SIZE)
+        self.setFixedSize(ZONE_W, ZONE_H)
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 14, 10, 14)
-        layout.setSpacing(6)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(8, 6, 8, 6)
+        root.setSpacing(2)
 
+        # フォルダ名
         self._name_label = QLabel()
         self._name_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._name_label.setWordWrap(True)
         self._name_label.setStyleSheet(
-            "color: #222; font-size: 13px; font-weight: bold; border: none; background: transparent;"
+            "color: #222; font-size: 12px; font-weight: bold; border: none; background: transparent;"
         )
 
-        self._path_label = QLabel()
-        self._path_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._path_label.setWordWrap(True)
-        self._path_label.setStyleSheet(
-            "color: #888; font-size: 9px; border: none; background: transparent;"
-        )
-
+        # ドロップヒント
         self._hint_label = QLabel("ここにドロップ")
         self._hint_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._hint_label.setStyleSheet(
-            "color: #bbb; font-size: 11px; border: none; background: transparent;"
+            "color: #ccc; font-size: 9px; border: none; background: transparent;"
         )
 
+        # 日付フォルダアイコン行
+        icon_row = QHBoxLayout()
+        icon_row.setContentsMargins(0, 0, 0, 0)
+        icon_row.setSpacing(4)
+        self._date_icon = QLabel()
+        self._date_icon.setFixedSize(14, 14)
         self._date_label = QLabel()
-        self._date_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._date_label.setStyleSheet(
-            "color: #4A90E2; font-size: 9px; border: none; background: transparent;"
+            "color: #999; font-size: 9px; border: none; background: transparent;"
         )
+        icon_row.addStretch()
+        icon_row.addWidget(self._date_icon)
+        icon_row.addWidget(self._date_label)
+        icon_row.addStretch()
 
-        layout.addStretch()
-        layout.addWidget(self._name_label)
-        layout.addWidget(self._path_label)
-        layout.addWidget(self._hint_label)
-        layout.addWidget(self._date_label)
-        layout.addStretch()
+        root.addStretch()
+        root.addWidget(self._name_label)
+        root.addWidget(self._hint_label)
+        root.addLayout(icon_row)
+        root.addStretch()
 
         self.refresh()
 
@@ -152,8 +244,8 @@ class DropZone(QFrame):
         path = entry.get("path", "")
         use_date = entry.get("use_date_folder", True)
         self._name_label.setText(name if name else Path(path).name)
-        self._path_label.setText(path if name else "")
-        self._date_label.setText("日付フォルダあり" if use_date else "直接移動")
+        self._date_icon.setPixmap(make_date_icon(use_date, 14))
+        self._date_label.setText("日付フォルダ" if use_date else "直接移動")
         self.setStyleSheet(self.IDLE_STYLE)
 
     def dragEnterEvent(self, event: QDragEnterEvent):
@@ -183,7 +275,6 @@ class FolderEditDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setSpacing(10)
 
-        # フォルダパス
         layout.addWidget(QLabel("フォルダ:"))
         path_row = QHBoxLayout()
         self._path_edit = QLineEdit()
@@ -197,7 +288,6 @@ class FolderEditDialog(QDialog):
         path_row.addWidget(browse_btn)
         layout.addLayout(path_row)
 
-        # 表示名
         layout.addWidget(QLabel("表示名（任意）:"))
         self._name_edit = QLineEdit()
         self._name_edit.setPlaceholderText("省略するとフォルダ名で表示されます")
@@ -205,12 +295,10 @@ class FolderEditDialog(QDialog):
             self._name_edit.setText(entry.get("name", ""))
         layout.addWidget(self._name_edit)
 
-        # 日付フォルダの生成
         self._date_check = QCheckBox("日付フォルダを生成する（例: 260709）")
         self._date_check.setChecked(entry.get("use_date_folder", True) if entry else True)
         layout.addWidget(self._date_check)
 
-        # ボタン
         btns = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
@@ -270,8 +358,8 @@ class SettingsDialog(QDialog):
             name = entry.get("name", "").strip()
             path = entry.get("path", "")
             use_date = entry.get("use_date_folder", True)
-            date_mark = "[日付あり]" if use_date else "[直接]"
-            display = f"{date_mark}  {name}  [{path}]" if name else f"{date_mark}  {path}"
+            mark = "📅" if use_date else "📂"
+            display = f"{mark}  {name}  [{path}]" if name else f"{mark}  {path}"
             self._list.addItem(display)
 
     def _add(self):
@@ -318,33 +406,32 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central)
         root = QVBoxLayout(central)
         root.setContentsMargins(12, 12, 12, 12)
-        root.setSpacing(10)
+        root.setSpacing(8)
 
-        # ヘッダー行
-        top = QHBoxLayout()
-        title = QLabel("DateFiler")
-        title.setStyleSheet("font-size: 16px; font-weight: bold;")
-        top.addWidget(title)
-        top.addStretch()
-        settings_btn = QPushButton("⚙ フォルダ登録")
-        settings_btn.clicked.connect(self._open_settings)
-        top.addWidget(settings_btn)
-        root.addLayout(top)
-
-        # スクロール可能なドロップゾーングリッド
+        # ドロップゾーングリッド（スクロール）
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         self._drop_container = QWidget()
         self._drop_layout = QGridLayout(self._drop_container)
-        self._drop_layout.setSpacing(12)
+        self._drop_layout.setSpacing(10)
         self._drop_layout.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
         scroll.setWidget(self._drop_container)
         root.addWidget(scroll)
 
-        hide_btn = QPushButton("トレイに格納")
-        hide_btn.clicked.connect(self._hide_to_tray)
-        root.addWidget(hide_btn)
+        # ボトムバー（右寄せアイコンボタン）
+        bottom = QHBoxLayout()
+        bottom.addStretch()
+
+        self._settings_btn = icon_button(make_settings_icon(28), "フォルダ登録", 36)
+        self._settings_btn.clicked.connect(self._open_settings)
+
+        self._tray_btn = icon_button(make_tray_icon_btn(28), "トレイに格納", 36)
+        self._tray_btn.clicked.connect(self._hide_to_tray)
+
+        bottom.addWidget(self._settings_btn)
+        bottom.addWidget(self._tray_btn)
+        root.addLayout(bottom)
 
         self._rebuild_drop_zones()
 
@@ -356,9 +443,9 @@ class MainWindow(QMainWindow):
 
         folders = self.settings["folders"]
         if not folders:
-            placeholder = QLabel("⚙ フォルダ登録 からフォルダを追加してください")
+            placeholder = QLabel("右下の歯車ボタンからフォルダを追加してください")
             placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            placeholder.setStyleSheet("color: #aaa; font-size: 13px; padding: 40px;")
+            placeholder.setStyleSheet("color: #bbb; font-size: 12px; padding: 40px;")
             self._drop_layout.addWidget(placeholder, 0, 0)
             return
 
@@ -396,10 +483,9 @@ class MainWindow(QMainWindow):
         self.hide()
         self.tray.showMessage(
             "DateFiler",
-            "タスクバー右下の「^」→「D」アイコンをクリックすると再表示できます。\n"
-            "常に表示したい場合はアイコンをドラッグしてトレイ外に移動してください。",
+            "タスクバー右下の「^」→「D」アイコンをクリックすると再表示できます。",
             QSystemTrayIcon.MessageIcon.Information,
-            5000,
+            4000,
         )
 
     def _open_settings(self):
