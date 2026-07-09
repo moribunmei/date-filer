@@ -343,7 +343,7 @@ class MainWindow(QMainWindow):
         root.addWidget(scroll)
 
         hide_btn = QPushButton("トレイに格納")
-        hide_btn.clicked.connect(self.hide)
+        hide_btn.clicked.connect(self._hide_to_tray)
         root.addWidget(hide_btn)
 
         self._rebuild_drop_zones()
@@ -391,6 +391,16 @@ class MainWindow(QMainWindow):
             msg_parts.append("エラー:\n" + "\n".join(errors))
         self.tray.showMessage("DateFiler", "\n".join(msg_parts),
                               QSystemTrayIcon.MessageIcon.Information, 3000)
+
+    def _hide_to_tray(self):
+        self.hide()
+        self.tray.showMessage(
+            "DateFiler",
+            "タスクバー右下の「^」→「D」アイコンをクリックすると再表示できます。\n"
+            "常に表示したい場合はアイコンをドラッグしてトレイ外に移動してください。",
+            QSystemTrayIcon.MessageIcon.Information,
+            5000,
+        )
 
     def _open_settings(self):
         dlg = SettingsDialog(self.settings, parent=self)
