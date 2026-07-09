@@ -2,6 +2,7 @@ import sys
 import os
 import json
 import shutil
+import math
 from datetime import datetime
 from pathlib import Path
 
@@ -9,19 +10,18 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QListWidget, QLabel, QFileDialog, QMessageBox,
     QSystemTrayIcon, QMenu, QDialog, QFrame,
-    QScrollArea, QLineEdit, QGridLayout, QDialogButtonBox, QCheckBox,
+    QLineEdit, QDialogButtonBox, QCheckBox,
     QTabWidget,
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QSize
+from PyQt6.QtCore import Qt, pyqtSignal, QSize, QTimer
 from PyQt6.QtGui import (
     QIcon, QDragEnterEvent, QDropEvent, QColor, QPixmap,
-    QPainter, QFont, QPen, QBrush, QPalette,
+    QPainter, QFont, QPen, QBrush,
 )
 
 SETTINGS_PATH = Path(os.environ.get("APPDATA", ".")) / "DateFiler" / "settings.json"
 ZONE_W = 150
 ZONE_H = 100
-GRID_COLS = 4
 
 
 # ---- 設定の読み書き --------------------------------------------------------
@@ -106,10 +106,10 @@ def make_settings_icon(size: int = 28) -> QIcon:
             angle = math.radians(i * 360 / (teeth * 2))
             r = r_out if i % 2 == 0 else r_out * 0.72
             pts.append(QPointF(cx + r * math.cos(angle), cy + r * math.sin(angle)))
-        p.setBrush(QColor("#aaa"))
+        p.setBrush(QColor("#555"))
         p.setPen(Qt.PenStyle.NoPen)
         p.drawPolygon(QPolygonF(pts))
-        p.setBrush(QColor("#1e1e1e"))
+        p.setBrush(QColor("#ffffff"))
         p.drawEllipse(QPointF(cx, cy), r_in, r_in)
     return _make_icon(size, draw)
 
@@ -119,7 +119,7 @@ def make_tray_icon_btn(size: int = 28) -> QIcon:
         from PyQt6.QtGui import QPolygonF
         from PyQt6.QtCore import QPointF
         p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QColor("#aaa"))
+        p.setBrush(QColor("#555"))
         m = s * 0.22
         p.drawRect(int(m), int(s * 0.22), int(s - m * 2), int(s * 0.14))
         cx, tip_y = s / 2, s * 0.82
@@ -140,12 +140,12 @@ def icon_button(icon: QIcon, tooltip: str, size: int = 36) -> QPushButton:
     btn.setToolTip(tooltip)
     btn.setStyleSheet("""
         QPushButton {
-            border: 1px solid #3a3a3a;
+            border: 1px solid #ccc;
             border-radius: 6px;
-            background: #2a2a2a;
+            background: #f0f0f0;
         }
-        QPushButton:hover  { background: #1a2d4a; border-color: #4A90E2; }
-        QPushButton:pressed { background: #0d1f36; }
+        QPushButton:hover  { background: #e0e8f8; border-color: #4A90E2; }
+        QPushButton:pressed { background: #c8d8f0; }
     """)
     return btn
 
@@ -159,13 +159,10 @@ _TILE_BASE = """
         background: {bg};
     }}
 """
-# ダーク（ファイル移動タブ）
-TILE_IDLE       = _TILE_BASE.format(border="#3a3a3a", bg="#252525")
-TILE_HOVER_DARK = _TILE_BASE.format(border="#4A90E2", bg="#1a2d4a")
-
-# ライト（ショートカットタブ）
-TILE_IDLE_LIGHT  = _TILE_BASE.format(border="#ddd", bg="#f8f8f8")
-TILE_HOVER_LIGHT = _TILE_BASE.format(border="#4A90E2", bg="#e8f0fe")
+TILE_IDLE       = _TILE_BASE.format(border="#ddd",    bg="#f8f8f8")
+TILE_HOVER_DARK = _TILE_BASE.format(border="#4A90E2", bg="#e8f0fe")
+TILE_IDLE_LIGHT  = TILE_IDLE
+TILE_HOVER_LIGHT = TILE_HOVER_DARK
 
 
 # ---- ショートカットタイル（クリックでフォルダを開く）-----------------------
@@ -246,20 +243,20 @@ class DropZone(QFrame):
         self._name.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._name.setWordWrap(True)
         self._name.setStyleSheet(
-            "color: #e8e8e8; font-size: 12px; font-weight: bold;"
+            "color: #222; font-size: 12px; font-weight: bold;"
             " border: none; background: transparent;"
         )
 
         self._hint = QLabel("ここにドロップ")
         self._hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._hint.setStyleSheet(
-            "color: #555; font-size: 9px; border: none; background: transparent;"
+            "color: #bbb; font-size: 9px; border: none; background: transparent;"
         )
 
         self._date = QLabel()
         self._date.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._date.setStyleSheet(
-            "color: #666; font-size: 9px; border: none; background: transparent;"
+            "color: #aaa; font-size: 9px; border: none; background: transparent;"
         )
 
         layout.addStretch()
@@ -441,32 +438,52 @@ class SettingsDialog(QDialog):
             self._refresh_list()
 
 
-# ---- タイルグリッドを組み立てるヘルパー ------------------------------------
+# ---- タイルグリッド（幅に応じて折り返し、高さ自動調整）--------------------
 
-def _build_tile_grid(parent: QWidget, tiles: list[QWidget], bg: str) -> QScrollArea:
-    container = QWidget()
-    container.setStyleSheet(f"QWidget {{ background: {bg}; }}")
-    grid = QGridLayout(container)
-    grid.setSpacing(10)
-    grid.setContentsMargins(12, 12, 12, 12)
-    grid.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+class TileGrid(QWidget):
+    _GAP = 10
+    _MARGIN = 12
 
-    ph_color = "#aaa" if bg == "#ffffff" else "#555"
-    if not tiles:
-        placeholder = QLabel("右上の歯車ボタンからフォルダを追加してください")
-        placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        placeholder.setStyleSheet(f"color: {ph_color}; font-size: 12px; padding: 40px; background: transparent;")
-        grid.addWidget(placeholder, 0, 0)
-    else:
-        for i, tile in enumerate(tiles):
-            grid.addWidget(tile, i // GRID_COLS, i % GRID_COLS)
+    def __init__(self, tiles: list, empty_text: str = ""):
+        super().__init__()
+        self._tiles = tiles
+        for t in tiles:
+            t.setParent(self)
+        if not tiles:
+            self._ph = QLabel(empty_text)
+            self._ph.setParent(self)
+            self._ph.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self._ph.setStyleSheet("color: #aaa; font-size: 12px;")
 
-    scroll = QScrollArea(parent)
-    scroll.setWidgetResizable(True)
-    scroll.setFrameShape(QFrame.Shape.NoFrame)
-    scroll.setStyleSheet(f"QScrollArea {{ background: {bg}; border: none; }}")
-    scroll.setWidget(container)
-    return scroll
+    def _layout_params(self, w: int):
+        """(cols, rows, needed_height) を返す"""
+        if not self._tiles:
+            return 1, 0, 80
+        avail = max(w - self._MARGIN * 2, ZONE_W)
+        cols = max(1, (avail + self._GAP) // (ZONE_W + self._GAP))
+        rows = math.ceil(len(self._tiles) / cols)
+        h = self._MARGIN + rows * (ZONE_H + self._GAP) - self._GAP + self._MARGIN
+        return cols, rows, h
+
+    def needed_height(self) -> int:
+        _, _, h = self._layout_params(self.width() or (ZONE_W + self._MARGIN * 2))
+        return h
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        w = self.width()
+        if not self._tiles:
+            if hasattr(self, '_ph'):
+                self._ph.setGeometry(0, 0, w, 80)
+            return
+        cols, _, _ = self._layout_params(w)
+        for i, tile in enumerate(self._tiles):
+            r, c = divmod(i, cols)
+            tile.move(
+                self._MARGIN + c * (ZONE_W + self._GAP),
+                self._MARGIN + r * (ZONE_H + self._GAP),
+            )
+            tile.show()
 
 
 # ---- メインウィンドウ -------------------------------------------------------
@@ -491,6 +508,7 @@ class MainWindow(QMainWindow):
         top.setSpacing(6)
         self._tabs = QTabWidget()
         self._tabs.setDocumentMode(True)
+        self._tabs.currentChanged.connect(lambda _: self._fit_height())
         top.addWidget(self._tabs)
 
         self._settings_btn = icon_button(make_settings_icon(28), "フォルダ登録", 32)
@@ -506,7 +524,32 @@ class MainWindow(QMainWindow):
         top.addLayout(btn_col)
 
         root.addLayout(top)
+
+        # 高さ自動調整用（デバウンス）
+        self._fitting = False
+        self._resize_timer = QTimer(self)
+        self._resize_timer.setSingleShot(True)
+        self._resize_timer.timeout.connect(self._fit_height)
+
         self._rebuild_tabs()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self._fitting:
+            self._fitting = False
+            return
+        self._resize_timer.start(0)
+
+    def _fit_height(self):
+        current = self._tabs.currentWidget()
+        if not isinstance(current, TileGrid):
+            return
+        needed = current.needed_height()
+        tab_bar_h = self._tabs.tabBar().height()
+        total = needed + tab_bar_h + 16  # 16 = 上下マージン(8+8)
+        if abs(self.height() - total) > 2:
+            self._fitting = True
+            self.resize(self.width(), total)
 
     def _rebuild_tabs(self):
         current_tab = self._tabs.currentIndex()
@@ -514,24 +557,25 @@ class MainWindow(QMainWindow):
 
         folders = self.settings["folders"]
 
-        # ショートカットタブ（白背景）
+        # ショートカットタブ
         sc_tiles = [ShortcutTile(e) for e in folders if e.get("show_shortcut", True)]
-        sc_scroll = _build_tile_grid(self, sc_tiles, bg="#ffffff")
-        self._tabs.addTab(sc_scroll, "ショートカット")
+        sc_grid = TileGrid(sc_tiles, "右上の歯車ボタンからフォルダを追加してください")
+        self._tabs.addTab(sc_grid, "ショートカット")
 
-        # ファイル移動タブ（黒背景）
+        # ファイル移動タブ
         fm_tiles = []
         for entry in folders:
             if entry.get("show_filemove", True):
                 zone = DropZone(entry)
                 zone.files_dropped.connect(lambda paths, e=entry: self._on_drop(paths, e))
                 fm_tiles.append(zone)
-        fm_scroll = _build_tile_grid(self, fm_tiles, bg="#1e1e1e")
-        self._tabs.addTab(fm_scroll, "ファイル移動")
+        fm_grid = TileGrid(fm_tiles, "右上の歯車ボタンからフォルダを追加してください")
+        self._tabs.addTab(fm_grid, "ファイル移動")
 
-        # タブ切り替え後に同じタブを復元
+        # タブ復元 → 高さ調整
         if 0 <= current_tab < self._tabs.count():
             self._tabs.setCurrentIndex(current_tab)
+        QTimer.singleShot(50, self._fit_height)
 
     def _on_drop(self, paths: list, entry: dict):
         use_date = entry.get("use_date_folder", True)
@@ -586,21 +630,6 @@ def main():
         QFont.StyleStrategy.PreferAntialias | QFont.StyleStrategy.PreferQuality
     )
     app.setFont(font)
-
-    palette = QPalette()
-    palette.setColor(QPalette.ColorRole.Window,          QColor("#1e1e1e"))
-    palette.setColor(QPalette.ColorRole.WindowText,      QColor("#e8e8e8"))
-    palette.setColor(QPalette.ColorRole.Base,            QColor("#2a2a2a"))
-    palette.setColor(QPalette.ColorRole.AlternateBase,   QColor("#252525"))
-    palette.setColor(QPalette.ColorRole.Text,            QColor("#e8e8e8"))
-    palette.setColor(QPalette.ColorRole.Button,          QColor("#2a2a2a"))
-    palette.setColor(QPalette.ColorRole.ButtonText,      QColor("#e8e8e8"))
-    palette.setColor(QPalette.ColorRole.Highlight,       QColor("#4A90E2"))
-    palette.setColor(QPalette.ColorRole.HighlightedText, QColor("#ffffff"))
-    palette.setColor(QPalette.ColorRole.ToolTipBase,     QColor("#2a2a2a"))
-    palette.setColor(QPalette.ColorRole.ToolTipText,     QColor("#e8e8e8"))
-    palette.setColor(QPalette.ColorRole.PlaceholderText, QColor("#555555"))
-    app.setPalette(palette)
 
     icon = make_app_icon()
     tray = QSystemTrayIcon(icon, app)
