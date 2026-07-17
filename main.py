@@ -3,6 +3,7 @@ import os
 import json
 import shutil
 import math
+import ctypes
 from datetime import datetime
 from pathlib import Path
 
@@ -560,6 +561,24 @@ class MainWindow(QMainWindow):
         self.hide()
 
 
+# ---- タイトルバー色（Windows 11 DWM API）----------------------------------
+
+def _set_titlebar_color(window, hex_color: str):
+    try:
+        hwnd = int(window.winId())
+        r = int(hex_color[1:3], 16)
+        g = int(hex_color[3:5], 16)
+        b = int(hex_color[5:7], 16)
+        colorref = r | (g << 8) | (b << 16)
+        DWMWA_CAPTION_COLOR = 35
+        ctypes.windll.dwmapi.DwmSetWindowAttribute(
+            hwnd, DWMWA_CAPTION_COLOR,
+            ctypes.byref(ctypes.c_uint(colorref)), ctypes.sizeof(ctypes.c_uint)
+        )
+    except Exception:
+        pass
+
+
 # ---- エントリポイント -------------------------------------------------------
 
 def main():
@@ -600,6 +619,7 @@ def main():
     )
     tray.show()
     window.show()
+    _set_titlebar_color(window, BG)
     sys.exit(app.exec())
 
 
