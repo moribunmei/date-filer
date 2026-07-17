@@ -451,7 +451,9 @@ class MainWindow(QMainWindow):
         self.tray = tray
         self.settings = load_settings()
         self.setWindowTitle("DateFiler")
-        self.resize(500, 300)
+        w = self.settings.get("window_width", 500)
+        h = self.settings.get("window_height", 300)
+        self.resize(w, h)
         self._grid: TileGrid | None = None
         self._build_ui()
 
@@ -540,6 +542,9 @@ class MainWindow(QMainWindow):
         self._rebuild_tiles()
 
     def _hide_to_tray(self):
+        self.settings["window_width"] = self.width()
+        self.settings["window_height"] = self.height()
+        save_settings(self.settings)
         self.hide()
         self.tray.showMessage(
             "DateFiler",
@@ -548,6 +553,9 @@ class MainWindow(QMainWindow):
         )
 
     def closeEvent(self, event):
+        self.settings["window_width"] = self.width()
+        self.settings["window_height"] = self.height()
+        save_settings(self.settings)
         event.ignore()
         self.hide()
 
