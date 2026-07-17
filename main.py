@@ -88,12 +88,38 @@ def _make_icon(size: int, draw_fn) -> QIcon:
 
 def make_app_icon() -> QIcon:
     def draw(p: QPainter, s: int):
-        p.setBrush(QColor("#0078D4"))
+        from PyQt6.QtGui import QPolygonF
+        from PyQt6.QtCore import QPointF
         p.setPen(Qt.PenStyle.NoPen)
-        p.drawRoundedRect(2, 2, s - 4, s - 4, 6, 6)
-        p.setPen(QColor("white"))
-        p.setFont(QFont("", int(s * 0.4), QFont.Weight.Bold))
-        p.drawText(0, 0, s, s, Qt.AlignmentFlag.AlignCenter, "D")
+
+        # フォルダのタブ（左上の出っ張り）
+        p.setBrush(QColor("#005A9E"))
+        p.drawRoundedRect(int(s * 0.06), int(s * 0.18),
+                          int(s * 0.38), int(s * 0.14), 3, 3)
+
+        # フォルダ本体
+        p.setBrush(QColor("#0078D4"))
+        p.drawRoundedRect(int(s * 0.06), int(s * 0.28),
+                          int(s * 0.88), int(s * 0.58), 3, 3)
+
+        # 白い矢印（ファイルがフォルダに飛び込むイメージ）
+        p.setBrush(QColor("white"))
+        cy = s * 0.57
+        x1 = s * 0.20
+        x2 = s * 0.75
+        sh = s * 0.11   # 軸の太さ
+        hw = s * 0.20   # 矢じりの幅
+        hh = s * 0.28   # 矢じりの高さ
+
+        # 軸
+        p.drawRect(int(x1), int(cy - sh / 2),
+                   int(x2 - x1 - hw * 0.5), int(sh))
+        # 矢じり
+        p.drawPolygon(QPolygonF([
+            QPointF(x2 - hw, cy - hh / 2),
+            QPointF(x2,      cy),
+            QPointF(x2 - hw, cy + hh / 2),
+        ]))
     return _make_icon(32, draw)
 
 
