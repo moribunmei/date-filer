@@ -619,7 +619,7 @@ def main():
     )
     tray.show()
     window.show()
-    _set_titlebar_color(window, BG)
+    _set_titlebar_color(window, "#E6F3FD")
     sys.exit(app.exec())
 
 
