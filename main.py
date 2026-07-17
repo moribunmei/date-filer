@@ -22,7 +22,7 @@ from PyQt6.QtGui import (
 SETTINGS_PATH = Path(os.environ.get("APPDATA", ".")) / "DateFiler" / "settings.json"
 ZONE_W = 150
 ZONE_H = 100
-BG = "#E6F3FD"
+BG = "#F3F9FE"
 
 
 # ---- 設定の読み書き --------------------------------------------------------
@@ -586,8 +586,8 @@ def main():
     app.setQuitOnLastWindowClosed(False)
 
     app.setStyleSheet("""
-        QMainWindow { background-color: #E6F3FD; }
-        QWidget { background-color: #E6F3FD; }
+        QMainWindow { background-color: #F3F9FE; }
+        QWidget { background-color: #F3F9FE; }
         QLineEdit, QListWidget { background-color: #FFFFFF; }
         QCheckBox { color: #1A1A1A; }
         QCheckBox::indicator {
