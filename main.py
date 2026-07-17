@@ -11,17 +11,17 @@ from PyQt6.QtWidgets import (
     QPushButton, QListWidget, QLabel, QFileDialog, QMessageBox,
     QSystemTrayIcon, QMenu, QDialog, QFrame,
     QLineEdit, QDialogButtonBox, QCheckBox,
-    QTabWidget,
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QSize, QTimer
+from PyQt6.QtCore import Qt, pyqtSignal, QSize
 from PyQt6.QtGui import (
     QIcon, QDragEnterEvent, QDropEvent, QColor, QPixmap,
-    QPainter, QFont, QPen, QBrush,
+    QPainter, QFont, QPen, QBrush, QPalette,
 )
 
 SETTINGS_PATH = Path(os.environ.get("APPDATA", ".")) / "DateFiler" / "settings.json"
 ZONE_W = 150
 ZONE_H = 100
+BG = "#E6F3FD"
 
 
 # ---- 設定の読み書き --------------------------------------------------------
@@ -33,13 +33,15 @@ def load_settings() -> dict:
         folders = data.get("folders", [])
         if folders and isinstance(folders[0], str):
             folders = [{"path": p, "name": "", "use_date_folder": True,
-                        "show_shortcut": True, "show_filemove": True} for p in folders]
+                        "allow_filemove": True, "click_count": 0, "move_count": 0}
+                       for p in folders]
             data["folders"] = folders
         else:
             for entry in folders:
                 entry.setdefault("use_date_folder", True)
-                entry.setdefault("show_shortcut", True)
-                entry.setdefault("show_filemove", True)
+                entry.setdefault("allow_filemove", True)
+                entry.setdefault("click_count", 0)
+                entry.setdefault("move_count", 0)
         return data
     return {"folders": []}
 
@@ -85,18 +87,17 @@ def _make_icon(size: int, draw_fn) -> QIcon:
 
 def make_app_icon() -> QIcon:
     def draw(p: QPainter, s: int):
-        p.setBrush(QColor("#4A90E2"))
+        p.setBrush(QColor("#0078D4"))
         p.setPen(Qt.PenStyle.NoPen)
         p.drawRoundedRect(2, 2, s - 4, s - 4, 6, 6)
         p.setPen(QColor("white"))
-        p.setFont(QFont("Noto Sans JP", int(s * 0.4), QFont.Weight.Bold))
+        p.setFont(QFont("", int(s * 0.4), QFont.Weight.Bold))
         p.drawText(0, 0, s, s, Qt.AlignmentFlag.AlignCenter, "D")
     return _make_icon(32, draw)
 
 
 def make_settings_icon(size: int = 28) -> QIcon:
     def draw(p: QPainter, s: int):
-        import math
         cx, cy, r_out, r_in = s / 2, s / 2, s * 0.42, s * 0.18
         teeth = 8
         from PyQt6.QtGui import QPolygonF
@@ -106,7 +107,7 @@ def make_settings_icon(size: int = 28) -> QIcon:
             angle = math.radians(i * 360 / (teeth * 2))
             r = r_out if i % 2 == 0 else r_out * 0.72
             pts.append(QPointF(cx + r * math.cos(angle), cy + r * math.sin(angle)))
-        p.setBrush(QColor("#555"))
+        p.setBrush(QColor("#5A5A5A"))
         p.setPen(Qt.PenStyle.NoPen)
         p.drawPolygon(QPolygonF(pts))
         p.setBrush(QColor("#ffffff"))
@@ -119,7 +120,7 @@ def make_tray_icon_btn(size: int = 28) -> QIcon:
         from PyQt6.QtGui import QPolygonF
         from PyQt6.QtCore import QPointF
         p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QColor("#555"))
+        p.setBrush(QColor("#5A5A5A"))
         m = s * 0.22
         p.drawRect(int(m), int(s * 0.22), int(s - m * 2), int(s * 0.14))
         cx, tip_y = s / 2, s * 0.82
@@ -132,6 +133,32 @@ def make_tray_icon_btn(size: int = 28) -> QIcon:
     return _make_icon(size, draw)
 
 
+def make_drop_pixmap(size: int = 28, color: str = "#ccc") -> QPixmap:
+    from PyQt6.QtGui import QPolygonF
+    from PyQt6.QtCore import QPointF
+    px = QPixmap(size, size)
+    px.fill(Qt.GlobalColor.transparent)
+    p = QPainter(px)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    c = QColor(color)
+    cx = size / 2
+    p.setPen(QPen(c, 2, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+    p.drawLine(int(cx), int(size * 0.08), int(cx), int(size * 0.58))
+    aw, ab = size * 0.28, size * 0.58
+    p.setBrush(c)
+    p.setPen(Qt.PenStyle.NoPen)
+    p.drawPolygon(QPolygonF([
+        QPointF(cx - aw, ab - size * 0.22),
+        QPointF(cx + aw, ab - size * 0.22),
+        QPointF(cx, ab),
+    ]))
+    m = size * 0.14
+    p.setPen(QPen(c, 2, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+    p.drawLine(int(m), int(size * 0.82), int(size - m), int(size * 0.82))
+    p.end()
+    return px
+
+
 def icon_button(icon: QIcon, tooltip: str, size: int = 36) -> QPushButton:
     btn = QPushButton()
     btn.setIcon(icon)
@@ -140,144 +167,81 @@ def icon_button(icon: QIcon, tooltip: str, size: int = 36) -> QPushButton:
     btn.setToolTip(tooltip)
     btn.setStyleSheet("""
         QPushButton {
-            border: 1px solid #ccc;
+            border: 1px solid #E5E5E5;
             border-radius: 6px;
-            background: #f0f0f0;
+            background: #FFFFFF;
         }
-        QPushButton:hover  { background: #e0e8f8; border-color: #4A90E2; }
-        QPushButton:pressed { background: #c8d8f0; }
+        QPushButton:hover  { background: #EFF6FF; border-color: #0078D4; }
+        QPushButton:pressed { background: #DCEEFB; }
     """)
     return btn
 
 
-# ---- タイル共通スタイル ----------------------------------------------------
+# ---- タイルスタイル --------------------------------------------------------
 
 _TILE_BASE = """
     QFrame {{
-        border: 2px solid {border};
+        border: 1px solid {border};
         border-radius: 8px;
         background: {bg};
     }}
 """
-TILE_IDLE       = _TILE_BASE.format(border="#ddd",    bg="#f8f8f8")
-TILE_HOVER_DARK = _TILE_BASE.format(border="#4A90E2", bg="#e8f0fe")
-TILE_IDLE_LIGHT  = TILE_IDLE
-TILE_HOVER_LIGHT = TILE_HOVER_DARK
+TILE_IDLE  = _TILE_BASE.format(border="#D8E8F5", bg="#FDFEFF")
+TILE_HOVER = _TILE_BASE.format(border="#0078D4", bg="#EFF6FF")
 
 
-# ---- ショートカットタイル（クリックでフォルダを開く）-----------------------
+# ---- フォルダタイル（クリック＋D&D統合）-----------------------------------
 
-class ShortcutTile(QFrame):
+class FolderTile(QFrame):
+    files_dropped = pyqtSignal(list)
+    folder_opened = pyqtSignal()
+
     def __init__(self, folder_entry: dict):
         super().__init__()
         self.folder_entry = folder_entry
+        self._allow_filemove = folder_entry.get("allow_filemove", True)
         self.setFixedSize(ZONE_W, ZONE_H)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setStyleSheet(TILE_IDLE_LIGHT)
+        self.setStyleSheet(TILE_IDLE)
+        if self._allow_filemove:
+            self.setAcceptDrops(True)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(4)
 
         self._name = QLabel()
         self._name.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._name.setWordWrap(True)
         self._name.setStyleSheet(
-            "color: #222; font-size: 12px; font-weight: bold;"
+            "color: #1A1A1A; font-size: 12px; font-weight: bold;"
             " border: none; background: transparent;"
-        )
-
-        self._sub = QLabel()
-        self._sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._sub.setWordWrap(True)
-        self._sub.setStyleSheet(
-            "color: #999; font-size: 9px; border: none; background: transparent;"
         )
 
         layout.addStretch()
         layout.addWidget(self._name)
-        layout.addWidget(self._sub)
+        if self._allow_filemove:
+            drop_icon = QLabel()
+            drop_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            drop_icon.setStyleSheet("border: none; background: transparent;")
+            drop_icon.setPixmap(make_drop_pixmap(22, "#B0B0B0"))
+            layout.addWidget(drop_icon)
         layout.addStretch()
 
-        self._refresh()
-
-    def _refresh(self):
-        name = self.folder_entry.get("name", "").strip()
-        path = self.folder_entry.get("path", "")
+        name = folder_entry.get("name", "").strip()
+        path = folder_entry.get("path", "")
         self._name.setText(name if name else Path(path).name)
-        self._sub.setText(path if name else "")
 
     def enterEvent(self, event):
-        self.setStyleSheet(TILE_HOVER_LIGHT)
+        self.setStyleSheet(TILE_HOVER)
 
     def leaveEvent(self, event):
-        self.setStyleSheet(TILE_IDLE_LIGHT)
-
-    def mouseReleaseEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton:
-            path = self.folder_entry.get("path", "")
-            if path and os.path.isdir(path):
-                os.startfile(path)
-
-
-# ---- ドロップゾーン（D&D でファイルを移動）---------------------------------
-
-class DropZone(QFrame):
-    files_dropped = pyqtSignal(list)
-
-    DRAG_HOVER = TILE_HOVER_DARK
-
-    def __init__(self, folder_entry: dict):
-        super().__init__()
-        self.folder_entry = folder_entry
-        self.setAcceptDrops(True)
-        self.setFixedSize(ZONE_W, ZONE_H)
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setStyleSheet(TILE_IDLE)
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 6, 8, 6)
-        layout.setSpacing(2)
-
-        self._name = QLabel()
-        self._name.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._name.setWordWrap(True)
-        self._name.setStyleSheet(
-            "color: #222; font-size: 12px; font-weight: bold;"
-            " border: none; background: transparent;"
-        )
-
-        self._hint = QLabel("ここにドロップ")
-        self._hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._hint.setStyleSheet(
-            "color: #bbb; font-size: 9px; border: none; background: transparent;"
-        )
-
-        self._date = QLabel()
-        self._date.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._date.setStyleSheet(
-            "color: #aaa; font-size: 9px; border: none; background: transparent;"
-        )
-
-        layout.addStretch()
-        layout.addWidget(self._name)
-        layout.addWidget(self._hint)
-        layout.addWidget(self._date)
-        layout.addStretch()
-
-        self._refresh()
-
-    def _refresh(self):
-        name = self.folder_entry.get("name", "").strip()
-        path = self.folder_entry.get("path", "")
-        use_date = self.folder_entry.get("use_date_folder", True)
-        self._name.setText(name if name else Path(path).name)
-        self._date.setText("日付あり" if use_date else "日付なし")
 
     def dragEnterEvent(self, event: QDragEnterEvent):
         if event.mimeData().hasUrls():
             event.acceptProposedAction()
-            self.setStyleSheet(self.DRAG_HOVER)
+            self.setStyleSheet(TILE_HOVER)
 
     def dragLeaveEvent(self, event):
         self.setStyleSheet(TILE_IDLE)
@@ -292,6 +256,7 @@ class DropZone(QFrame):
         if event.button() == Qt.MouseButton.LeftButton:
             path = self.folder_entry.get("path", "")
             if path and os.path.isdir(path):
+                self.folder_opened.emit()
                 os.startfile(path)
 
 
@@ -331,13 +296,9 @@ class FolderEditDialog(QDialog):
         self._date_check.setChecked(entry.get("use_date_folder", True) if entry else True)
         layout.addWidget(self._date_check)
 
-        layout.addWidget(QLabel("表示画面:"))
-        self._sc_check = QCheckBox("ショートカット画面に表示")
-        self._sc_check.setChecked(entry.get("show_shortcut", True) if entry else True)
-        self._fm_check = QCheckBox("ファイル移動画面に表示")
-        self._fm_check.setChecked(entry.get("show_filemove", True) if entry else True)
-        layout.addWidget(self._sc_check)
-        layout.addWidget(self._fm_check)
+        self._filemove_check = QCheckBox("ファイル移動を有効にする（D&D でファイルを移動できます）")
+        self._filemove_check.setChecked(entry.get("allow_filemove", True) if entry else True)
+        layout.addWidget(self._filemove_check)
 
         btns = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
@@ -356,15 +317,11 @@ class FolderEditDialog(QDialog):
         if not path or not os.path.isdir(path):
             QMessageBox.warning(self, "エラー", "有効なフォルダパスを指定してください。")
             return
-        if not self._sc_check.isChecked() and not self._fm_check.isChecked():
-            QMessageBox.warning(self, "エラー", "表示画面をどちらか一方は選択してください。")
-            return
         self.result_entry = {
             "path": path,
             "name": self._name.text().strip(),
             "use_date_folder": self._date_check.isChecked(),
-            "show_shortcut": self._sc_check.isChecked(),
-            "show_filemove": self._fm_check.isChecked(),
+            "allow_filemove": self._filemove_check.isChecked(),
         }
         self.accept()
 
@@ -402,16 +359,21 @@ class SettingsDialog(QDialog):
         for entry in self.settings["folders"]:
             name = entry.get("name", "").strip()
             path = entry.get("path", "")
-            sc   = "SC" if entry.get("show_shortcut", True) else "  "
-            fm   = "FM" if entry.get("show_filemove", True) else "  "
-            dt   = "📅" if entry.get("use_date_folder", True) else "📂"
+            fm = "移動可" if entry.get("allow_filemove", True) else "移動不可"
+            clicks = entry.get("click_count", 0)
+            moves = entry.get("move_count", 0)
             label = name if name else Path(path).name
-            self._list.addItem(f"[{sc}][{fm}] {dt}  {label}  —  {path}")
+            self._list.addItem(
+                f"[{fm}] {label}  —  {path}  （クリック:{clicks} 移動:{moves}）"
+            )
 
     def _add(self):
         dlg = FolderEditDialog(parent=self)
         if dlg.exec() == QDialog.DialogCode.Accepted and dlg.result_entry:
-            self.settings["folders"].append(dlg.result_entry)
+            entry = dlg.result_entry
+            entry["click_count"] = 0
+            entry["move_count"] = 0
+            self.settings["folders"].append(entry)
             save_settings(self.settings)
             self._refresh_list()
 
@@ -419,9 +381,13 @@ class SettingsDialog(QDialog):
         row = self._list.currentRow()
         if row < 0:
             return
-        dlg = FolderEditDialog(entry=self.settings["folders"][row], parent=self)
+        existing = self.settings["folders"][row]
+        dlg = FolderEditDialog(entry=existing, parent=self)
         if dlg.exec() == QDialog.DialogCode.Accepted and dlg.result_entry:
-            self.settings["folders"][row] = dlg.result_entry
+            result = dlg.result_entry
+            result["click_count"] = existing.get("click_count", 0)
+            result["move_count"] = existing.get("move_count", 0)
+            self.settings["folders"][row] = result
             save_settings(self.settings)
             self._refresh_list()
 
@@ -438,7 +404,7 @@ class SettingsDialog(QDialog):
             self._refresh_list()
 
 
-# ---- タイルグリッド（幅に応じて折り返し、高さ自動調整）--------------------
+# ---- タイルグリッド（幅に応じて折り返し）-----------------------------------
 
 class TileGrid(QWidget):
     _GAP = 10
@@ -446,6 +412,10 @@ class TileGrid(QWidget):
 
     def __init__(self, tiles: list, empty_text: str = ""):
         super().__init__()
+        self.setAutoFillBackground(True)
+        _pal = self.palette()
+        _pal.setColor(QPalette.ColorRole.Window, QColor(BG))
+        self.setPalette(_pal)
         self._tiles = tiles
         for t in tiles:
             t.setParent(self)
@@ -453,21 +423,7 @@ class TileGrid(QWidget):
             self._ph = QLabel(empty_text)
             self._ph.setParent(self)
             self._ph.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            self._ph.setStyleSheet("color: #aaa; font-size: 12px;")
-
-    def _layout_params(self, w: int):
-        """(cols, rows, needed_height) を返す"""
-        if not self._tiles:
-            return 1, 0, 80
-        avail = max(w - self._MARGIN * 2, ZONE_W)
-        cols = max(1, (avail + self._GAP) // (ZONE_W + self._GAP))
-        rows = math.ceil(len(self._tiles) / cols)
-        h = self._MARGIN + rows * (ZONE_H + self._GAP) - self._GAP + self._MARGIN
-        return cols, rows, h
-
-    def needed_height(self) -> int:
-        _, _, h = self._layout_params(self.width() or (ZONE_W + self._MARGIN * 2))
-        return h
+            self._ph.setStyleSheet("color: #9E9E9E; font-size: 12px;")
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -476,7 +432,8 @@ class TileGrid(QWidget):
             if hasattr(self, '_ph'):
                 self._ph.setGeometry(0, 0, w, 80)
             return
-        cols, _, _ = self._layout_params(w)
+        avail = max(w - self._MARGIN * 2, ZONE_W)
+        cols = max(1, (avail + self._GAP) // (ZONE_W + self._GAP))
         for i, tile in enumerate(self._tiles):
             r, c = divmod(i, cols)
             tile.move(
@@ -494,88 +451,59 @@ class MainWindow(QMainWindow):
         self.tray = tray
         self.settings = load_settings()
         self.setWindowTitle("DateFiler")
+        self.resize(500, 300)
+        self._grid: TileGrid | None = None
         self._build_ui()
 
     def _build_ui(self):
         central = QWidget()
+        central.setAutoFillBackground(True)
+        _pal = central.palette()
+        _pal.setColor(QPalette.ColorRole.Window, QColor(BG))
+        central.setPalette(_pal)
         self.setCentralWidget(central)
-        root = QVBoxLayout(central)
-        root.setContentsMargins(8, 8, 8, 8)
-        root.setSpacing(6)
+        self._root = QVBoxLayout(central)
+        self._root.setContentsMargins(8, 8, 8, 8)
+        self._root.setSpacing(6)
 
-        # トップバー（タブ + 右上アイコン）
         top = QHBoxLayout()
-        top.setSpacing(6)
-        self._tabs = QTabWidget()
-        self._tabs.setDocumentMode(True)
-        self._tabs.currentChanged.connect(lambda _: self._fit_height())
-        top.addWidget(self._tabs)
-
+        top.addStretch()
         self._settings_btn = icon_button(make_settings_icon(28), "フォルダ登録", 32)
         self._settings_btn.clicked.connect(self._open_settings)
         self._tray_btn = icon_button(make_tray_icon_btn(28), "トレイに格納", 32)
         self._tray_btn.clicked.connect(self._hide_to_tray)
+        top.addWidget(self._settings_btn)
+        top.addWidget(self._tray_btn)
+        self._root.addLayout(top)
 
-        btn_col = QVBoxLayout()
-        btn_col.setSpacing(4)
-        btn_col.addWidget(self._settings_btn)
-        btn_col.addWidget(self._tray_btn)
-        btn_col.addStretch()
-        top.addLayout(btn_col)
+        self._rebuild_tiles()
 
-        root.addLayout(top)
+    def _sorted_folders(self) -> list:
+        return sorted(
+            self.settings["folders"],
+            key=lambda e: e.get("click_count", 0) + e.get("move_count", 0),
+            reverse=True,
+        )
 
-        # 高さ自動調整用（デバウンス）
-        self._fitting = False
-        self._resize_timer = QTimer(self)
-        self._resize_timer.setSingleShot(True)
-        self._resize_timer.timeout.connect(self._fit_height)
+    def _rebuild_tiles(self):
+        if self._grid is not None:
+            self._root.removeWidget(self._grid)
+            self._grid.setParent(None)
 
-        self._rebuild_tabs()
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        if self._fitting:
-            self._fitting = False
-            return
-        self._resize_timer.start(0)
-
-    def _fit_height(self):
-        current = self._tabs.currentWidget()
-        if not isinstance(current, TileGrid):
-            return
-        needed = current.needed_height()
-        tab_bar_h = self._tabs.tabBar().height()
-        total = needed + tab_bar_h + 16  # 16 = 上下マージン(8+8)
-        if abs(self.height() - total) > 2:
-            self._fitting = True
-            self.resize(self.width(), total)
-
-    def _rebuild_tabs(self):
-        current_tab = self._tabs.currentIndex()
-        self._tabs.clear()
-
-        folders = self.settings["folders"]
-
-        # ショートカットタブ
-        sc_tiles = [ShortcutTile(e) for e in folders if e.get("show_shortcut", True)]
-        sc_grid = TileGrid(sc_tiles, "右上の歯車ボタンからフォルダを追加してください")
-        self._tabs.addTab(sc_grid, "ショートカット")
-
-        # ファイル移動タブ
-        fm_tiles = []
+        folders = self._sorted_folders()
+        tiles = []
         for entry in folders:
-            if entry.get("show_filemove", True):
-                zone = DropZone(entry)
-                zone.files_dropped.connect(lambda paths, e=entry: self._on_drop(paths, e))
-                fm_tiles.append(zone)
-        fm_grid = TileGrid(fm_tiles, "右上の歯車ボタンからフォルダを追加してください")
-        self._tabs.addTab(fm_grid, "ファイル移動")
+            tile = FolderTile(entry)
+            tile.folder_opened.connect(lambda e=entry: self._on_click(e))
+            tile.files_dropped.connect(lambda paths, e=entry: self._on_drop(paths, e))
+            tiles.append(tile)
 
-        # タブ復元 → 高さ調整
-        if 0 <= current_tab < self._tabs.count():
-            self._tabs.setCurrentIndex(current_tab)
-        QTimer.singleShot(50, self._fit_height)
+        self._grid = TileGrid(tiles, "右上の歯車ボタンからフォルダを追加してください")
+        self._root.addWidget(self._grid, 1)
+
+    def _on_click(self, entry: dict):
+        entry["click_count"] = entry.get("click_count", 0) + 1
+        save_settings(self.settings)
 
     def _on_drop(self, paths: list, entry: dict):
         use_date = entry.get("use_date_folder", True)
@@ -591,6 +519,10 @@ class MainWindow(QMainWindow):
             except Exception as e:
                 errors.append(f"{Path(p).name}: {e}")
 
+        if moved:
+            entry["move_count"] = entry.get("move_count", 0) + moved
+            save_settings(self.settings)
+
         label = entry.get("name") or Path(target).name
         parts = []
         if moved:
@@ -598,8 +530,14 @@ class MainWindow(QMainWindow):
             parts.append(f"{moved} 個を [{label}] に{dest}移動しました。")
         if errors:
             parts.append("エラー:\n" + "\n".join(errors))
-        self.tray.showMessage("DateFiler", "\n".join(parts),
-                              QSystemTrayIcon.MessageIcon.Information, 3000)
+        if parts:
+            self.tray.showMessage("DateFiler", "\n".join(parts),
+                                  QSystemTrayIcon.MessageIcon.Information, 3000)
+
+    def _open_settings(self):
+        dlg = SettingsDialog(self.settings, parent=self)
+        dlg.exec()
+        self._rebuild_tiles()
 
     def _hide_to_tray(self):
         self.hide()
@@ -608,11 +546,6 @@ class MainWindow(QMainWindow):
             "タスクバー右下の「^」→「D」アイコンをクリックすると再表示できます。",
             QSystemTrayIcon.MessageIcon.Information, 4000,
         )
-
-    def _open_settings(self):
-        dlg = SettingsDialog(self.settings, parent=self)
-        dlg.exec()
-        self._rebuild_tabs()
 
     def closeEvent(self, event):
         event.ignore()
@@ -625,11 +558,23 @@ def main():
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
 
-    font = QFont("Noto Sans JP", 10)
-    font.setStyleStrategy(
-        QFont.StyleStrategy.PreferAntialias | QFont.StyleStrategy.PreferQuality
-    )
-    app.setFont(font)
+    app.setStyleSheet("""
+        QMainWindow { background-color: #E6F3FD; }
+        QWidget { background-color: #E6F3FD; }
+        QLineEdit, QListWidget { background-color: #FFFFFF; }
+        QCheckBox { color: #1A1A1A; }
+        QCheckBox::indicator {
+            width: 14px;
+            height: 14px;
+            border: 1px solid #888888;
+            border-radius: 2px;
+            background-color: #FFFFFF;
+        }
+        QCheckBox::indicator:checked {
+            border: 2px solid #0078D4;
+            background-color: #0078D4;
+        }
+    """)
 
     icon = make_app_icon()
     tray = QSystemTrayIcon(icon, app)
