@@ -326,7 +326,8 @@ class FolderTile(QFrame):
 
     def set_edit_mode(self, enabled: bool):
         self._edit_mode = enabled
-        self.setAcceptDrops(enabled or self._allow_filemove)
+        # 編集モード中はTileGridが全タイルドラッグを捌く。ファイルドロップは通常モードのみ。
+        self.setAcceptDrops(not enabled and self._allow_filemove)
         self.setStyleSheet(_TILE_EDIT if enabled else self._normal_style())
 
     def enterEvent(self, event):
@@ -338,10 +339,19 @@ class FolderTile(QFrame):
     def _drop_indicator_style(self, x: float) -> str:
         return _TILE_DROP_AFTER if x > self.width() / 2 else _TILE_DROP_BEFORE
 
+    @staticmethod
+    def _parse_tile_mime(data: bytes) -> tuple[str, bool]:
+        raw = data.decode()
+        path, section = raw.rsplit("|", 1)
+        return path, section == "1"
+
     def dragEnterEvent(self, event: QDragEnterEvent):
         if self._edit_mode and event.mimeData().hasFormat("application/x-datefiler-tile"):
-            from_path = bytes(event.mimeData().data("application/x-datefiler-tile")).decode()
-            if from_path != self.folder_entry.get("path", ""):
+            from_path, from_filemove = self._parse_tile_mime(
+                bytes(event.mimeData().data("application/x-datefiler-tile"))
+            )
+            if (from_path != self.folder_entry.get("path", "")
+                    and from_filemove == self._allow_filemove):
                 event.acceptProposedAction()
                 self.setStyleSheet(self._drop_indicator_style(event.position().x()))
                 return
@@ -353,8 +363,11 @@ class FolderTile(QFrame):
 
     def dragMoveEvent(self, event):
         if self._edit_mode and event.mimeData().hasFormat("application/x-datefiler-tile"):
-            from_path = bytes(event.mimeData().data("application/x-datefiler-tile")).decode()
-            if from_path != self.folder_entry.get("path", ""):
+            from_path, from_filemove = self._parse_tile_mime(
+                bytes(event.mimeData().data("application/x-datefiler-tile"))
+            )
+            if (from_path != self.folder_entry.get("path", "")
+                    and from_filemove == self._allow_filemove):
                 self.setStyleSheet(self._drop_indicator_style(event.position().x()))
                 event.acceptProposedAction()
                 return
@@ -369,9 +382,11 @@ class FolderTile(QFrame):
     def dropEvent(self, event: QDropEvent):
         if self._edit_mode and event.mimeData().hasFormat("application/x-datefiler-tile"):
             self.setStyleSheet(_TILE_EDIT)
-            from_path = bytes(event.mimeData().data("application/x-datefiler-tile")).decode()
+            from_path, from_filemove = self._parse_tile_mime(
+                bytes(event.mimeData().data("application/x-datefiler-tile"))
+            )
             to_path = self.folder_entry.get("path", "")
-            if from_path != to_path:
+            if from_path != to_path and from_filemove == self._allow_filemove:
                 insert_after = event.position().x() > self.width() / 2
                 self.reorder_requested.emit(from_path, to_path, insert_after)
             event.acceptProposedAction()
@@ -397,8 +412,9 @@ class FolderTile(QFrame):
         self._dragged = True
         drag = QDrag(self)
         mime = QMimeData()
+        section = "1" if self._allow_filemove else "0"
         mime.setData("application/x-datefiler-tile",
-                     self.folder_entry.get("path", "").encode())
+                     (self.folder_entry.get("path", "") + "|" + section).encode())
         drag.setMimeData(mime)
         drag.setPixmap(self.grab())
         drag.setHotSpot(self._drag_start_pos)
@@ -882,6 +898,8 @@ class TileGrid(QWidget):
     _MARGIN = 16
     _SECTION_GAP = 28  # ファイル移動セクションとリンクセクションの間隔
 
+    reorder_requested = pyqtSignal(str, str, bool, bool)  # from_path, to_path, insert_after, is_filemove
+
     def __init__(self, tiles_move: list, tiles_link: list = None,
                  bg_color: str = BG_NORMAL, empty_text: str = ""):
         super().__init__()
@@ -889,6 +907,7 @@ class TileGrid(QWidget):
         self._tiles_move = tiles_move
         self._tiles_link = tiles_link or []
         self._all_tiles = tiles_move + self._tiles_link
+        self._edit_mode = False
         self.set_bg(bg_color)
         for t in self._all_tiles:
             t.setParent(self)
@@ -903,6 +922,70 @@ class TileGrid(QWidget):
         pal.setColor(QPalette.ColorRole.Window, QColor(color))
         self.setPalette(pal)
         self.update()
+
+    def set_edit_mode(self, enabled: bool):
+        self._edit_mode = enabled
+        self.setAcceptDrops(enabled)
+
+    # ---- タイルD&Dをグリッドレベルで処理 --------------------------------
+    def _tile_at(self, x: float, y: float, is_filemove: bool):
+        tiles = self._tiles_move if is_filemove else self._tiles_link
+        for tile in tiles:
+            if (tile.x() <= x < tile.x() + tile.width()
+                    and tile.y() <= y < tile.y() + tile.height()):
+                return tile
+        return None
+
+    def _clear_indicators(self, is_filemove: bool):
+        for tile in (self._tiles_move if is_filemove else self._tiles_link):
+            if tile._edit_mode:
+                tile.setStyleSheet(_TILE_EDIT)
+
+    def dragEnterEvent(self, event: QDragEnterEvent):
+        if self._edit_mode and event.mimeData().hasFormat("application/x-datefiler-tile"):
+            event.acceptProposedAction()
+            return
+        event.ignore()
+
+    def dragMoveEvent(self, event):
+        if not (self._edit_mode and event.mimeData().hasFormat("application/x-datefiler-tile")):
+            event.ignore()
+            return
+        from_path, from_filemove = FolderTile._parse_tile_mime(
+            bytes(event.mimeData().data("application/x-datefiler-tile"))
+        )
+        pos = event.position()
+        target = self._tile_at(pos.x(), pos.y(), from_filemove)
+        self._clear_indicators(from_filemove)
+        if target and target.folder_entry.get("path") != from_path:
+            insert_after = pos.x() > target.x() + target.width() / 2
+            target.setStyleSheet(_TILE_DROP_AFTER if insert_after else _TILE_DROP_BEFORE)
+        event.acceptProposedAction()
+
+    def dragLeaveEvent(self, event):
+        for tile in self._all_tiles:
+            if tile._edit_mode:
+                tile.setStyleSheet(_TILE_EDIT)
+
+    def dropEvent(self, event: QDropEvent):
+        if not (self._edit_mode and event.mimeData().hasFormat("application/x-datefiler-tile")):
+            event.ignore()
+            return
+        from_path, from_filemove = FolderTile._parse_tile_mime(
+            bytes(event.mimeData().data("application/x-datefiler-tile"))
+        )
+        self._clear_indicators(from_filemove)
+        pos = event.position()
+        target = self._tile_at(pos.x(), pos.y(), from_filemove)
+        if target and target.folder_entry.get("path") != from_path:
+            insert_after = pos.x() > target.x() + target.width() / 2
+            self.reorder_requested.emit(from_path, target.folder_entry.get("path"), insert_after, from_filemove)
+        else:
+            # タイル外（空白エリア）に落とした → セクション末尾へ
+            tiles = self._tiles_move if from_filemove else self._tiles_link
+            if tiles and tiles[-1].folder_entry.get("path") != from_path:
+                self.reorder_requested.emit(from_path, tiles[-1].folder_entry.get("path"), True, from_filemove)
+        event.acceptProposedAction()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -1164,7 +1247,6 @@ class MainWindow(QMainWindow):
             tile.edit_requested.connect(lambda e=entry: self._edit_tile(e))
             tile.folder_opened.connect(lambda e=entry: self._on_click(e))
             tile.files_dropped.connect(lambda paths, e=entry: self._on_drop(paths, e))
-            tile.reorder_requested.connect(self._reorder_folder)
             self._tiles.append(tile)
             if entry.get("allow_filemove", True):
                 tiles_move.append(tile)
@@ -1176,10 +1258,12 @@ class MainWindow(QMainWindow):
             tiles_move, tiles_link, bg,
             "右下の [+] ボタンからフォルダを追加してください"
         )
+        self._grid.reorder_requested.connect(self._reorder_folder)
         self._container.set_grid(self._grid)
 
         for tile in self._tiles:
             tile.set_edit_mode(self._in_edit_mode)
+        self._grid.set_edit_mode(self._in_edit_mode)
 
     def _edit_fab_clicked(self):
         if self._in_add_mode:
@@ -1201,12 +1285,16 @@ class MainWindow(QMainWindow):
         self._in_edit_mode = True
         for tile in self._tiles:
             tile.set_edit_mode(True)
+        if self._grid:
+            self._grid.set_edit_mode(True)
         self._apply_mode_ui()
 
     def _exit_edit_mode(self):
         self._in_edit_mode = False
         for tile in self._tiles:
             tile.set_edit_mode(False)
+        if self._grid:
+            self._grid.set_edit_mode(False)
         self._apply_mode_ui()
 
     def _enter_add_mode(self):
@@ -1255,10 +1343,12 @@ class MainWindow(QMainWindow):
                 save_settings(self.settings)
                 self._rebuild_tiles()
 
-    def _reorder_folder(self, from_path: str, to_path: str, insert_after: bool = False):
+    def _reorder_folder(self, from_path: str, to_path: str, insert_after: bool, is_filemove: bool):
         folders = self.settings["folders"]
-        from_idx = next((i for i, e in enumerate(folders) if e.get("path") == from_path), -1)
-        to_idx = next((i for i, e in enumerate(folders) if e.get("path") == to_path), -1)
+        from_idx = next((i for i, e in enumerate(folders)
+                         if e.get("path") == from_path and e.get("allow_filemove", True) == is_filemove), -1)
+        to_idx = next((i for i, e in enumerate(folders)
+                       if e.get("path") == to_path and e.get("allow_filemove", True) == is_filemove), -1)
         if from_idx < 0 or to_idx < 0 or from_idx == to_idx:
             return
         item = folders.pop(from_idx)
