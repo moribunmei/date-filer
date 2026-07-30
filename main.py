@@ -13,19 +13,57 @@ from PyQt6.QtWidgets import (
     QSystemTrayIcon, QMenu, QDialog, QFrame,
     QLineEdit, QDialogButtonBox, QCheckBox, QSizeGrip,
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QSize, QPointF
+from PyQt6.QtCore import Qt, pyqtSignal, QSize, QPointF, QByteArray, QMimeData
 from PyQt6.QtGui import (
     QIcon, QDragEnterEvent, QDropEvent, QColor, QPixmap,
-    QPainter, QPen, QPalette, QPolygonF,
+    QPainter, QPen, QPalette, QPolygonF, QDrag,
 )
+from PyQt6.QtSvg import QSvgRenderer
 
 SETTINGS_PATH = Path(os.environ.get("APPDATA", ".")) / "DateFiler" / "settings.json"
+
+_SVG_FOLDER = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#1f1f1f">'
+    '<path d="M0 0h24v24H0z" fill="none"/>'
+    '<path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8'
+    'c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>'
+)
+_SVG_EDIT = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#1f1f1f">'
+    '<path d="M0 0h24v24H0z" fill="none"/>'
+    '<path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04'
+    'c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>'
+)
+_SVG_SAVE = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#1f1f1f">'
+    '<path d="M0 0h24v24H0z" fill="none"/>'
+    '<path d="M17 3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V7l-4-4z'
+    'm-5 16c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3zm3-10H5V5h10v4z"/></svg>'
+)
+_SVG_FOLDER_TILE = (
+    '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="32" viewBox="0 0 40 32" fill="none">'
+    '<path d="M16 0H4C1.8 0 0.02 1.8 0.02 4L0 28C0 30.2 1.8 32 4 32H36C38.2 32 40 30.2 40 28'
+    'V8C40 5.8 38.2 4 36 4H20L16 0Z" fill="#FFD55F"/>'
+    '</svg>'
+)
+
+
+def _svg_to_pixmap(svg_str: str, size: int, color: str = "#1f1f1f") -> QPixmap:
+    data = svg_str.replace("#1f1f1f", color).encode()
+    renderer = QSvgRenderer(QByteArray(data))
+    px = QPixmap(size, size)
+    px.fill(Qt.GlobalColor.transparent)
+    p = QPainter(px)
+    renderer.render(p)
+    p.end()
+    return px
 TILE_W = 120
-TILE_H = 110
+TILE_H = 90
+TILE_H_LINK = 48
 FAB_SIZE = 44
 BG_NORMAL = "#FFFFFF"
 BG_EDIT = "#FFF8E1"
-FOLDER_YELLOW = "#FFBB33"
+FOLDER_YELLOW = "#FFD55F"
 FOLDER_SHADOW = "#CC8800"
 
 
@@ -107,37 +145,23 @@ def make_app_icon() -> QIcon:
     return QIcon(px)
 
 
-def make_tile_folder_pixmap(size: int = 52, has_plus: bool = False) -> QPixmap:
-    px = QPixmap(size, size)
+def make_tile_folder_pixmap(w: int = 40, h: int = 32, has_plus: bool = False) -> QPixmap:
+    px = QPixmap(w, h)
     px.fill(Qt.GlobalColor.transparent)
+
+    svg_data = _SVG_FOLDER_TILE.replace("#FFD55F", FOLDER_YELLOW).encode()
+    renderer = QSvgRenderer(QByteArray(svg_data))
     p = QPainter(px)
     p.setRenderHint(QPainter.RenderHint.Antialiasing)
-    p.setPen(Qt.PenStyle.NoPen)
-
-    # フォルダタブ（左上の出っ張り）
-    tab_w = int(size * 0.42)
-    tab_h = int(size * 0.16)
-    tab_x = int(size * 0.06)
-    tab_y = int(size * 0.16)
-    p.setBrush(QColor(FOLDER_YELLOW))
-    p.drawRoundedRect(tab_x, tab_y, tab_w, tab_h + 6, 5, 5)
-
-    # フォルダ本体
-    body_x = int(size * 0.06)
-    body_y = int(size * 0.27)
-    body_w = int(size * 0.88)
-    body_h = int(size * 0.60)
-    p.setBrush(QColor(FOLDER_YELLOW))
-    p.drawRoundedRect(body_x, body_y, body_w, body_h, 5, 5)
+    renderer.render(p)
 
     if has_plus:
-        # 小さな円バッジ（日付フォルダ有効を表す）を左上に表示
-        br = int(size * 0.20)
-        bcx = int(size * 0.30)
-        bcy = int(size * 0.30)
+        p.setPen(Qt.PenStyle.NoPen)
+        br = int(min(w, h) * 0.22)
+        bcx = int(w * 0.25)
+        bcy = int(h * 0.55)
         p.setBrush(QColor("#E07800"))
         p.drawEllipse(bcx - br, bcy - br, br * 2, br * 2)
-        # バッジ内の白い "+"
         p.setBrush(QColor("white"))
         bl = int(br * 0.56)
         bt = max(2, int(br * 0.22))
@@ -149,21 +173,15 @@ def make_tile_folder_pixmap(size: int = 52, has_plus: bool = False) -> QPixmap:
 
 
 def make_header_folder_pixmap(size: int = 18) -> QPixmap:
-    px = QPixmap(size, size)
-    px.fill(Qt.GlobalColor.transparent)
-    p = QPainter(px)
-    p.setRenderHint(QPainter.RenderHint.Antialiasing)
-    p.setPen(Qt.PenStyle.NoPen)
-    p.setBrush(QColor("#333333"))
-    p.drawRoundedRect(int(size * 0.06), int(size * 0.16),
-                      int(size * 0.38), int(size * 0.14), 2, 2)
-    p.drawRoundedRect(int(size * 0.06), int(size * 0.26),
-                      int(size * 0.88), int(size * 0.60), 3, 3)
-    p.end()
-    return px
+    return _svg_to_pixmap(_SVG_FOLDER, size, "#333333")
 
 
 def _fab_symbol_icon(kind: str, color: str = "white") -> QIcon:
+    if kind == "pencil":
+        return QIcon(_svg_to_pixmap(_SVG_EDIT, 20, color))
+    elif kind == "save":
+        return QIcon(_svg_to_pixmap(_SVG_SAVE, 20, color))
+
     size = 20
     px = QPixmap(size, size)
     px.fill(Qt.GlobalColor.transparent)
@@ -222,22 +240,32 @@ def _fab_symbol_icon(kind: str, color: str = "white") -> QIcon:
 # ---- タイルスタイル定数 ----------------------------------------------------
 
 _TILE_NORMAL = (
-    "QFrame { border: none; background: transparent; border-radius: 10px; }"
+    "QFrame { border: none; background: transparent; border-radius: 6px; }"
 )
 _TILE_NORMAL_HOVER = (
-    "QFrame { border: none; background: #F0F0F0; border-radius: 10px; }"
+    "QFrame { border: none; background: #F0F0F0; border-radius: 6px; }"
 )
 _TILE_LINK_NORMAL = (
-    "QFrame { border: 1px solid #E8E8E8; background: #F8F8F8; border-radius: 10px; }"
+    "QFrame { border: 1px solid #E8E8E8; background: #FBF8F8; border-radius: 6px; }"
 )
 _TILE_LINK_NORMAL_HOVER = (
-    "QFrame { border: 1px solid #E8E8E8; background: #EEEEEE; border-radius: 10px; }"
+    "QFrame { border: 1px solid #E8E8E8; background: #EEEEEE; border-radius: 6px; }"
 )
 _TILE_EDIT = (
-    "QFrame { border: 1px solid #EEEEEE; background: #FFFFFF; border-radius: 10px; }"
+    "QFrame { border: 1px solid #EEEEEE; background: #FFFFFF; border-radius: 6px; }"
 )
 _TILE_EDIT_HOVER = (
-    "QFrame { border: 1px solid #EEEEEE; background: rgba(255,152,0,0.18); border-radius: 10px; }"
+    "QFrame { border: 1px solid #EEEEEE; background: rgba(255,152,0,0.18); border-radius: 6px; }"
+)
+_TILE_DROP_BEFORE = (
+    "QFrame { border-left: 3px solid #0078D4; border-top: 1px solid #C8E0F8;"
+    " border-right: 1px solid #C8E0F8; border-bottom: 1px solid #C8E0F8;"
+    " background: #EEF6FF; border-radius: 6px; }"
+)
+_TILE_DROP_AFTER = (
+    "QFrame { border-right: 3px solid #0078D4; border-top: 1px solid #C8E0F8;"
+    " border-left: 1px solid #C8E0F8; border-bottom: 1px solid #C8E0F8;"
+    " background: #EEF6FF; border-radius: 6px; }"
 )
 
 
@@ -247,6 +275,7 @@ class FolderTile(QFrame):
     edit_requested = pyqtSignal(dict)
     files_dropped = pyqtSignal(list)
     folder_opened = pyqtSignal()
+    reorder_requested = pyqtSignal(str, str, bool)
 
     def __init__(self, folder_entry: dict):
         super().__init__()
@@ -254,14 +283,18 @@ class FolderTile(QFrame):
         self._allow_filemove = folder_entry.get("allow_filemove", True)
         self._use_date_folder = folder_entry.get("use_date_folder", True)
         self._edit_mode = False
-        self.setFixedSize(TILE_W, TILE_H)
+        self._drag_start_pos = None
+        self._dragged = False
+        tile_h = TILE_H if self._allow_filemove else TILE_H_LINK
+        self.setFixedSize(TILE_W, tile_h)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setStyleSheet(self._normal_style())
         if self._allow_filemove:
             self.setAcceptDrops(True)
 
+        m = 8 if self._allow_filemove else 6
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setContentsMargins(m, m, m, m)
         layout.setSpacing(4)
         layout.addStretch()
 
@@ -269,7 +302,7 @@ class FolderTile(QFrame):
             icon_lbl = QLabel()
             icon_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
             icon_lbl.setStyleSheet("border: none; background: transparent;")
-            icon_lbl.setPixmap(make_tile_folder_pixmap(44, self._use_date_folder))
+            icon_lbl.setPixmap(make_tile_folder_pixmap(40, 32, self._use_date_folder))
             layout.addWidget(icon_lbl)
 
         name_lbl = QLabel()
@@ -293,7 +326,7 @@ class FolderTile(QFrame):
 
     def set_edit_mode(self, enabled: bool):
         self._edit_mode = enabled
-        self.setAcceptDrops(self._allow_filemove and not enabled)
+        self.setAcceptDrops(enabled or self._allow_filemove)
         self.setStyleSheet(_TILE_EDIT if enabled else self._normal_style())
 
     def enterEvent(self, event):
@@ -302,22 +335,80 @@ class FolderTile(QFrame):
     def leaveEvent(self, event):
         self.setStyleSheet(_TILE_EDIT if self._edit_mode else self._normal_style())
 
+    def _drop_indicator_style(self, x: float) -> str:
+        return _TILE_DROP_AFTER if x > self.width() / 2 else _TILE_DROP_BEFORE
+
     def dragEnterEvent(self, event: QDragEnterEvent):
-        if event.mimeData().hasUrls():
+        if self._edit_mode and event.mimeData().hasFormat("application/x-datefiler-tile"):
+            from_path = bytes(event.mimeData().data("application/x-datefiler-tile")).decode()
+            if from_path != self.folder_entry.get("path", ""):
+                event.acceptProposedAction()
+                self.setStyleSheet(self._drop_indicator_style(event.position().x()))
+                return
+        elif self._allow_filemove and event.mimeData().hasUrls():
             event.acceptProposedAction()
             self.setStyleSheet(self._normal_hover_style())
+            return
+        event.ignore()
+
+    def dragMoveEvent(self, event):
+        if self._edit_mode and event.mimeData().hasFormat("application/x-datefiler-tile"):
+            from_path = bytes(event.mimeData().data("application/x-datefiler-tile")).decode()
+            if from_path != self.folder_entry.get("path", ""):
+                self.setStyleSheet(self._drop_indicator_style(event.position().x()))
+                event.acceptProposedAction()
+                return
+        elif self._allow_filemove and event.mimeData().hasUrls():
+            event.acceptProposedAction()
+            return
+        event.ignore()
 
     def dragLeaveEvent(self, event):
-        self.setStyleSheet(self._normal_style())
+        self.setStyleSheet(_TILE_EDIT if self._edit_mode else self._normal_style())
 
     def dropEvent(self, event: QDropEvent):
-        self.setStyleSheet(self._normal_style())
-        paths = [u.toLocalFile() for u in event.mimeData().urls() if u.isLocalFile()]
-        if paths:
-            self.files_dropped.emit(paths)
+        if self._edit_mode and event.mimeData().hasFormat("application/x-datefiler-tile"):
+            self.setStyleSheet(_TILE_EDIT)
+            from_path = bytes(event.mimeData().data("application/x-datefiler-tile")).decode()
+            to_path = self.folder_entry.get("path", "")
+            if from_path != to_path:
+                insert_after = event.position().x() > self.width() / 2
+                self.reorder_requested.emit(from_path, to_path, insert_after)
+            event.acceptProposedAction()
+        else:
+            self.setStyleSheet(self._normal_style())
+            paths = [u.toLocalFile() for u in event.mimeData().urls() if u.isLocalFile()]
+            if paths:
+                self.files_dropped.emit(paths)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_start_pos = event.position().toPoint()
+            self._dragged = False
+
+    def mouseMoveEvent(self, event):
+        if not (event.buttons() & Qt.MouseButton.LeftButton) or not self._edit_mode:
+            return
+        if self._drag_start_pos is None:
+            return
+        delta = (event.position().toPoint() - self._drag_start_pos).manhattanLength()
+        if delta < QApplication.startDragDistance():
+            return
+        self._dragged = True
+        drag = QDrag(self)
+        mime = QMimeData()
+        mime.setData("application/x-datefiler-tile",
+                     self.folder_entry.get("path", "").encode())
+        drag.setMimeData(mime)
+        drag.setPixmap(self.grab())
+        drag.setHotSpot(self._drag_start_pos)
+        drag.exec(Qt.DropAction.MoveAction)
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
+            if self._dragged:
+                self._dragged = False
+                return
             if self._edit_mode:
                 self.edit_requested.emit(self.folder_entry)
             else:
@@ -526,6 +617,7 @@ class FolderEditDialog(QDialog):
         self.setWindowTitle("フォルダの編集" if is_edit else "フォルダの追加")
         self.setFixedWidth(420)
         self.result_entry: dict | None = None
+        self.deleted = False
 
         self.setStyleSheet("""
             QDialog { background: #FFFFFF; border: 1px solid #DDDDDD; }
@@ -563,12 +655,33 @@ class FolderEditDialog(QDialog):
         root.setSpacing(0)
 
         # ---- タイトル ----
+        title_row = QHBoxLayout()
+        title_row.setContentsMargins(0, 0, 0, 0)
+        title_row.setSpacing(0)
+
         title = QLabel("フォルダの編集" if is_edit else "フォルダの追加")
         title.setStyleSheet(
             "font-size: 16px; font-weight: 700; color: #1A1A1A;"
             " background: transparent; border: none;"
         )
-        root.addWidget(title)
+        title_row.addWidget(title)
+        title_row.addStretch()
+
+        if is_edit:
+            del_btn = QPushButton("削除する")
+            del_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            del_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            del_btn.setStyleSheet("""
+                QPushButton {
+                    color: #E53935; font-size: 13px; font-weight: 600;
+                    background: transparent; border: none; padding: 0;
+                }
+                QPushButton:hover { color: #B71C1C; }
+            """)
+            del_btn.clicked.connect(self._delete)
+            title_row.addWidget(del_btn)
+
+        root.addLayout(title_row)
         root.addSpacing(20)
 
         # ---- フォルダパス ----
@@ -660,6 +773,10 @@ class FolderEditDialog(QDialog):
         btn_row.addWidget(save_btn)
         btn_row.addWidget(cancel_btn)
         root.addLayout(btn_row)
+
+    def _delete(self):
+        self.deleted = True
+        self.accept()
 
     def _browse(self):
         folder = QFileDialog.getExistingDirectory(self, "フォルダを選択")
@@ -815,7 +932,7 @@ class TileGrid(QWidget):
             r, c = divmod(i, cols)
             tile.move(
                 self._MARGIN + c * (TILE_W + self._GAP),
-                y + r * (TILE_H + self._GAP),
+                y + r * (TILE_H_LINK + self._GAP),
             )
             tile.show()
 
@@ -1004,7 +1121,7 @@ class MainWindow(QMainWindow):
             add_kind, add_bg, add_hov = "plus", "#2D2D2D", "#444444"
             self._edit_fab.setEnabled(True)
         elif self._in_edit_mode:
-            edit_kind, edit_bg, edit_hov = "pencil", "#FF8C00", "#E07000"
+            edit_kind, edit_bg, edit_hov = "save", "#FF8C00", "#E07000"
             add_kind, add_bg, add_hov = "plus", "#2D2D2D", "#444444"
             self._edit_fab.setEnabled(True)
         else:
@@ -1034,11 +1151,7 @@ class MainWindow(QMainWindow):
             self._grid.set_bg(bg)
 
     def _sorted_folders(self) -> list:
-        return sorted(
-            self.settings["folders"],
-            key=lambda e: e.get("click_count", 0) + e.get("move_count", 0),
-            reverse=True,
-        )
+        return self.settings["folders"]
 
     def _rebuild_tiles(self):
         folders = self._sorted_folders()
@@ -1051,6 +1164,7 @@ class MainWindow(QMainWindow):
             tile.edit_requested.connect(lambda e=entry: self._edit_tile(e))
             tile.folder_opened.connect(lambda e=entry: self._on_click(e))
             tile.files_dropped.connect(lambda paths, e=entry: self._on_drop(paths, e))
+            tile.reorder_requested.connect(self._reorder_folder)
             self._tiles.append(tile)
             if entry.get("allow_filemove", True):
                 tiles_move.append(tile)
@@ -1109,7 +1223,25 @@ class MainWindow(QMainWindow):
 
     def _edit_tile(self, entry: dict):
         dlg = FolderEditDialog(entry=entry, parent=self)
-        if dlg.exec() == QDialog.DialogCode.Accepted and dlg.result_entry:
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        if dlg.deleted:
+            name = entry.get("name") or Path(entry.get("path", "")).name
+            if QMessageBox.question(self, "削除確認", f"「{name}」を削除しますか？") \
+                    == QMessageBox.StandardButton.Yes:
+                idx = next(
+                    (i for i, e in enumerate(self.settings["folders"])
+                     if e.get("path") == entry.get("path")),
+                    -1,
+                )
+                if idx >= 0:
+                    self.settings["folders"].pop(idx)
+                    save_settings(self.settings)
+                    self._rebuild_tiles()
+            return
+
+        if dlg.result_entry:
             result = dlg.result_entry
             result["click_count"] = entry.get("click_count", 0)
             result["move_count"] = entry.get("move_count", 0)
@@ -1122,6 +1254,21 @@ class MainWindow(QMainWindow):
                 self.settings["folders"][idx] = result
                 save_settings(self.settings)
                 self._rebuild_tiles()
+
+    def _reorder_folder(self, from_path: str, to_path: str, insert_after: bool = False):
+        folders = self.settings["folders"]
+        from_idx = next((i for i, e in enumerate(folders) if e.get("path") == from_path), -1)
+        to_idx = next((i for i, e in enumerate(folders) if e.get("path") == to_path), -1)
+        if from_idx < 0 or to_idx < 0 or from_idx == to_idx:
+            return
+        item = folders.pop(from_idx)
+        if from_idx < to_idx:
+            to_idx -= 1
+        if insert_after:
+            to_idx += 1
+        folders.insert(to_idx, item)
+        save_settings(self.settings)
+        self._rebuild_tiles()
 
     def _on_click(self, entry: dict):
         entry["click_count"] = entry.get("click_count", 0) + 1
