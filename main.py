@@ -507,55 +507,77 @@ class FolderTile(QFrame):
 class AddModeOverlay(QWidget):
     folder_dropped = pyqtSignal(str)
     close_requested = pyqtSignal()
+    edit_requested = pyqtSignal()
+
+    _SVG_WHITE_FOLDER = (
+        '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="32" viewBox="0 0 40 32" fill="none">'
+        '<path d="M16 0H4C1.8 0 0.02 1.8 0.02 4L0 28C0 30.2 1.8 32 4 32H36C38.2 32 40 30.2 40 28'
+        'V8C40 5.8 38.2 4 36 4H20L16 0Z" fill="white"/>'
+        '</svg>'
+    )
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setAcceptDrops(True)
+        self._drag_over = False
 
         lyt = QVBoxLayout(self)
         lyt.setContentsMargins(0, 0, 0, 0)
         lyt.setSpacing(0)
 
-        # 中央カードエリア
+        # 中央エリア（カード不要、アイコン+テキストのみ）
         center = QWidget()
+        center.setStyleSheet("background: transparent;")
         center_lyt = QVBoxLayout(center)
         center_lyt.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        self._card = QFrame()
-        self._card.setFixedSize(260, 130)
-        self._card.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        self._set_card_hover(False)
-
-        card_lyt = QVBoxLayout(self._card)
-        card_lyt.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        card_lyt.setSpacing(10)
+        center_lyt.setSpacing(14)
 
         icon_lbl = QLabel()
         icon_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         icon_lbl.setStyleSheet("border: none; background: transparent;")
-        icon_lbl.setPixmap(self._make_overlay_icon(40))
-        card_lyt.addWidget(icon_lbl)
+        icon_px = QPixmap(52, 42)
+        icon_px.fill(Qt.GlobalColor.transparent)
+        renderer = QSvgRenderer(QByteArray(self._SVG_WHITE_FOLDER.encode()))
+        ip = QPainter(icon_px)
+        renderer.render(ip)
+        ip.end()
+        icon_lbl.setPixmap(icon_px)
+        center_lyt.addWidget(icon_lbl)
 
-        main_lbl = QLabel("フォルダをここにドロップして追加")
+        main_lbl = QLabel("フォルダをここにドロップして追加してください")
         main_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         main_lbl.setStyleSheet(
-            "color: #1A1A1A; font-size: 13px; font-weight: bold;"
+            "color: white; font-size: 13px; font-weight: bold;"
             " border: none; background: transparent;"
         )
-        card_lyt.addWidget(main_lbl)
-
-        center_lyt.addWidget(self._card)
+        center_lyt.addWidget(main_lbl)
         lyt.addWidget(center, 1)
 
-        # 下部エリア：右に白い×ボタン
+        # 下部エリア：左に鉛筆ボタン、右に×ボタン
         bottom = QWidget()
+        bottom.setStyleSheet("background: transparent;")
         bottom.setFixedHeight(68)
         b_lyt = QHBoxLayout(bottom)
         b_lyt.setContentsMargins(16, 12, 16, 12)
         b_lyt.setSpacing(0)
-        b_lyt.addStretch()
 
         r = FAB_SIZE // 2
+        pencil_btn = QPushButton()
+        pencil_btn.setFixedSize(FAB_SIZE, FAB_SIZE)
+        pencil_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        pencil_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        pencil_btn.setIcon(_fab_symbol_icon("pencil", "white"))
+        pencil_btn.setIconSize(QSize(FAB_SIZE - 12, FAB_SIZE - 12))
+        pencil_btn.setStyleSheet(
+            f"QPushButton {{ background: #2D2D2D; border-radius: {r}px; border: none; }}"
+            f"QPushButton:hover {{ background: #444444; }}"
+            f"QPushButton:pressed {{ background: #555555; }}"
+        )
+        pencil_btn.clicked.connect(self.edit_requested.emit)
+        b_lyt.addWidget(pencil_btn)
+
+        b_lyt.addStretch()
+
         close_btn = QPushButton()
         close_btn.setFixedSize(FAB_SIZE, FAB_SIZE)
         close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -572,51 +594,28 @@ class AddModeOverlay(QWidget):
 
         lyt.addWidget(bottom)
 
-    @staticmethod
-    def _make_overlay_icon(size: int) -> QPixmap:
-        px = QPixmap(size, size)
-        px.fill(Qt.GlobalColor.transparent)
-        p = QPainter(px)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QColor("#CCCCCC"))
-        tab_w = int(size * 0.42)
-        tab_h = int(size * 0.16)
-        p.drawRoundedRect(int(size * 0.06), int(size * 0.16),
-                          tab_w, tab_h + 5, 4, 4)
-        p.drawRoundedRect(int(size * 0.06), int(size * 0.27),
-                          int(size * 0.88), int(size * 0.60), 4, 4)
-        p.end()
-        return px
-
-    def _set_card_hover(self, hover: bool):
-        bg = "#F0F0F0" if hover else "#FFFFFF"
-        self._card.setStyleSheet(f"""
-            QFrame {{
-                background: {bg};
-                border-radius: 14px;
-                border: 1px solid #E0E0E0;
-            }}
-        """)
-
     def paintEvent(self, event):
         p = QPainter(self)
-        p.fillRect(self.rect(), QColor(20, 20, 20, 210))
+        alpha = 230 if self._drag_over else 210
+        p.fillRect(self.rect(), QColor(20, 20, 20, alpha))
         p.end()
 
     def dragEnterEvent(self, event: QDragEnterEvent):
         for url in event.mimeData().urls():
             if url.isLocalFile() and os.path.isdir(url.toLocalFile()):
                 event.acceptProposedAction()
-                self._set_card_hover(True)
+                self._drag_over = True
+                self.update()
                 return
         event.ignore()
 
     def dragLeaveEvent(self, event):
-        self._set_card_hover(False)
+        self._drag_over = False
+        self.update()
 
     def dropEvent(self, event: QDropEvent):
-        self._set_card_hover(False)
+        self._drag_over = False
+        self.update()
         for url in event.mimeData().urls():
             if url.isLocalFile():
                 path = url.toLocalFile()
@@ -1247,6 +1246,7 @@ class MainWindow(QMainWindow):
         self._add_overlay = AddModeOverlay(central)
         self._add_overlay.folder_dropped.connect(self._on_folder_dropped_for_add)
         self._add_overlay.close_requested.connect(self._exit_add_mode)
+        self._add_overlay.edit_requested.connect(self._on_add_overlay_edit)
         self._add_overlay.hide()
 
         # リサイズグリップ（フレームレスウィンドウ用）
@@ -1376,6 +1376,10 @@ class MainWindow(QMainWindow):
         self._in_add_mode = False
         self._add_overlay.hide()
         self._apply_mode_ui()
+
+    def _on_add_overlay_edit(self):
+        self._exit_add_mode()
+        self._enter_edit_mode()
 
     def _edit_tile(self, entry: dict):
         dlg = FolderEditDialog(entry=entry, parent=self)
