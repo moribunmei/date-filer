@@ -345,40 +345,52 @@ class FolderTile(QFrame):
         layout.setContentsMargins(m, m, m, m)
         layout.setSpacing(4)
 
-        # リンクタイル（下セクション）は垂直中央揃え。フォルダタイルは上から詰めてアイコン上端を揃える。
-        if not self._allow_filemove:
-            layout.addStretch()
-
-        if self._allow_filemove:
-            icon_lbl = QLabel()
-            icon_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            icon_lbl.setStyleSheet("border: none; background: transparent;")
-            icon_lbl.setPixmap(make_tile_folder_pixmap(40, 32, self._use_date_folder))
-            layout.addWidget(icon_lbl)
-
-        # フォント設定（メトリクス計算用）
         name_font = QFont()
         name_font.setPixelSize(11)
         name_font.setWeight(QFont.Weight.DemiBold)
         fm = QFontMetrics(name_font)
-        label_h = fm.lineSpacing() * 2 + 2  # 2行分の高さ（+2px 余白）
-
-        inner_w = TILE_W - 2 * m - 2  # テキスト幅（少し余裕を持たせる）
+        inner_w = TILE_W - 2 * m - 2
         name = folder_entry.get("name", "").strip()
         path = folder_entry.get("path", "")
         raw_name = name if name else Path(path).name
-        display_text = _elide_to_lines(raw_name, fm, inner_w, 2)
 
-        name_lbl = QLabel(display_text)
-        name_lbl.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
-        name_lbl.setWordWrap(True)
-        name_lbl.setFixedHeight(label_h)
-        name_lbl.setStyleSheet(
-            "color: #1A1A1A; font-size: 11px; font-weight: 600;"
-            " border: none; background: transparent;"
-        )
-        layout.addWidget(name_lbl)
-        layout.addStretch()
+        if self._allow_filemove:
+            # フォルダタイル: アイコン + 2行ラベルをタイル内で上下中央揃え
+            icon_lbl = QLabel()
+            icon_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            icon_lbl.setStyleSheet("border: none; background: transparent;")
+            icon_lbl.setPixmap(make_tile_folder_pixmap(40, 32, self._use_date_folder))
+
+            display_text = _elide_to_lines(raw_name, fm, inner_w, 2)
+            label_h = fm.lineSpacing() * 2 + 2
+            name_lbl = QLabel(display_text)
+            name_lbl.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
+            name_lbl.setWordWrap(True)
+            name_lbl.setFixedHeight(label_h)
+            name_lbl.setStyleSheet(
+                "color: #1A1A1A; font-size: 11px; font-weight: 600;"
+                " border: none; background: transparent;"
+            )
+
+            layout.addStretch()
+            layout.addWidget(icon_lbl)
+            layout.addWidget(name_lbl)
+            layout.addStretch()
+        else:
+            # リンクタイル: 1行のみ・垂直中央揃え
+            display_text = fm.elidedText(raw_name, Qt.TextElideMode.ElideRight, inner_w)
+            label_h = fm.lineSpacing() + 2
+            name_lbl = QLabel(display_text)
+            name_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            name_lbl.setFixedHeight(label_h)
+            name_lbl.setStyleSheet(
+                "color: #1A1A1A; font-size: 11px; font-weight: 600;"
+                " border: none; background: transparent;"
+            )
+
+            layout.addStretch()
+            layout.addWidget(name_lbl)
+            layout.addStretch()
 
     def _normal_style(self) -> str:
         return _TILE_LINK_NORMAL if not self._allow_filemove else _TILE_NORMAL
