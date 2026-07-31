@@ -17,6 +17,7 @@ from PyQt6.QtCore import Qt, pyqtSignal, QSize, QPointF, QByteArray, QMimeData
 from PyQt6.QtGui import (
     QIcon, QDragEnterEvent, QDropEvent, QColor, QPixmap,
     QPainter, QPen, QPalette, QPolygonF, QDrag,
+    QFont, QFontMetrics,
 )
 from PyQt6.QtSvg import QSvgRenderer
 
@@ -269,6 +270,53 @@ _TILE_DROP_AFTER = (
 )
 
 
+def _elide_to_lines(text: str, fm: QFontMetrics, max_width: int, max_lines: int) -> str:
+    """テキストを最大 max_lines 行に収め、超過分は … で省略する。
+    日本語等スペースなし文字列も文字単位で折り返す。
+    """
+    if not text:
+        return text
+
+    lines: list[str] = []
+    i = 0
+    n = len(text)
+
+    while i < n and len(lines) < max_lines:
+        is_last = (len(lines) == max_lines - 1)
+
+        # 1行に収まる文字数を貪欲に求める
+        j = i
+        while j < n and fm.horizontalAdvance(text[i:j + 1]) <= max_width:
+            j += 1
+
+        if j == i:
+            lines.append("…")
+            i += 1
+            continue
+
+        if j >= n:
+            lines.append(text[i:])
+            i = n
+        elif is_last:
+            # 最後の行は省略記号付き
+            k = j
+            while k > i and fm.horizontalAdvance(text[i:k] + "…") > max_width:
+                k -= 1
+            lines.append(text[i:k] + "…")
+            i = n
+        else:
+            # スペース（単語境界）があればそこで折り返す
+            sp = text.rfind(" ", i, j)
+            if sp > i:
+                lines.append(text[i:sp])
+                i = sp + 1
+            else:
+                lines.append(text[i:j])
+                i = j
+
+    return "\n".join(lines)
+
+
 # ---- フォルダタイル --------------------------------------------------------
 
 class FolderTile(QFrame):
@@ -296,7 +344,10 @@ class FolderTile(QFrame):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(m, m, m, m)
         layout.setSpacing(4)
-        layout.addStretch()
+
+        # リンクタイル（下セクション）は垂直中央揃え。フォルダタイルは上から詰めてアイコン上端を揃える。
+        if not self._allow_filemove:
+            layout.addStretch()
 
         if self._allow_filemove:
             icon_lbl = QLabel()
@@ -305,16 +356,27 @@ class FolderTile(QFrame):
             icon_lbl.setPixmap(make_tile_folder_pixmap(40, 32, self._use_date_folder))
             layout.addWidget(icon_lbl)
 
-        name_lbl = QLabel()
-        name_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        # フォント設定（メトリクス計算用）
+        name_font = QFont()
+        name_font.setPixelSize(11)
+        name_font.setWeight(QFont.Weight.DemiBold)
+        fm = QFontMetrics(name_font)
+        label_h = fm.lineSpacing() * 2 + 2  # 2行分の高さ（+2px 余白）
+
+        inner_w = TILE_W - 2 * m - 2  # テキスト幅（少し余裕を持たせる）
+        name = folder_entry.get("name", "").strip()
+        path = folder_entry.get("path", "")
+        raw_name = name if name else Path(path).name
+        display_text = _elide_to_lines(raw_name, fm, inner_w, 2)
+
+        name_lbl = QLabel(display_text)
+        name_lbl.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
         name_lbl.setWordWrap(True)
+        name_lbl.setFixedHeight(label_h)
         name_lbl.setStyleSheet(
             "color: #1A1A1A; font-size: 11px; font-weight: 600;"
             " border: none; background: transparent;"
         )
-        name = folder_entry.get("name", "").strip()
-        path = folder_entry.get("path", "")
-        name_lbl.setText(name if name else Path(path).name)
         layout.addWidget(name_lbl)
         layout.addStretch()
 
