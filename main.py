@@ -504,6 +504,58 @@ class FolderTile(QFrame):
 
 # ---- 追加モードオーバーレイ ------------------------------------------------
 
+class _DropZoneBox(QWidget):
+    """白い点線枠付きのドロップゾーン表示ウィジェット"""
+
+    def __init__(self, svg_folder: str, parent=None):
+        super().__init__(parent)
+        self._hover = False
+        self.setFixedSize(270, 120)
+
+        lyt = QVBoxLayout(self)
+        lyt.setContentsMargins(20, 16, 20, 16)
+        lyt.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lyt.setSpacing(12)
+
+        icon_px = QPixmap(48, 38)
+        icon_px.fill(Qt.GlobalColor.transparent)
+        renderer = QSvgRenderer(QByteArray(svg_folder.encode()))
+        ip = QPainter(icon_px)
+        renderer.render(ip)
+        ip.end()
+
+        icon_lbl = QLabel()
+        icon_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        icon_lbl.setStyleSheet("border: none; background: transparent;")
+        icon_lbl.setPixmap(icon_px)
+        lyt.addWidget(icon_lbl)
+
+        text_lbl = QLabel("フォルダをここにドロップして追加してください")
+        text_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        text_lbl.setWordWrap(True)
+        text_lbl.setStyleSheet(
+            "color: white; font-size: 12px; font-weight: bold;"
+            " border: none; background: transparent;"
+        )
+        lyt.addWidget(text_lbl)
+
+    def set_hover(self, hover: bool):
+        self._hover = hover
+        self.update()
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        alpha = 220 if self._hover else 140
+        pen = QPen(QColor(255, 255, 255, alpha))
+        pen.setWidth(2)
+        pen.setStyle(Qt.PenStyle.DashLine)
+        p.setPen(pen)
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawRoundedRect(1, 1, self.width() - 2, self.height() - 2, 10, 10)
+        p.end()
+
+
 class AddModeOverlay(QWidget):
     folder_dropped = pyqtSignal(str)
     close_requested = pyqtSignal()
@@ -525,32 +577,14 @@ class AddModeOverlay(QWidget):
         lyt.setContentsMargins(0, 0, 0, 0)
         lyt.setSpacing(0)
 
-        # 中央エリア（カード不要、アイコン+テキストのみ）
+        # 中央エリア：点線枠付きドロップゾーン
         center = QWidget()
         center.setStyleSheet("background: transparent;")
         center_lyt = QVBoxLayout(center)
         center_lyt.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        center_lyt.setSpacing(14)
 
-        icon_lbl = QLabel()
-        icon_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        icon_lbl.setStyleSheet("border: none; background: transparent;")
-        icon_px = QPixmap(52, 42)
-        icon_px.fill(Qt.GlobalColor.transparent)
-        renderer = QSvgRenderer(QByteArray(self._SVG_WHITE_FOLDER.encode()))
-        ip = QPainter(icon_px)
-        renderer.render(ip)
-        ip.end()
-        icon_lbl.setPixmap(icon_px)
-        center_lyt.addWidget(icon_lbl)
-
-        main_lbl = QLabel("フォルダをここにドロップして追加してください")
-        main_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        main_lbl.setStyleSheet(
-            "color: white; font-size: 13px; font-weight: bold;"
-            " border: none; background: transparent;"
-        )
-        center_lyt.addWidget(main_lbl)
+        self._drop_zone = _DropZoneBox(self._SVG_WHITE_FOLDER)
+        center_lyt.addWidget(self._drop_zone)
         lyt.addWidget(center, 1)
 
         # 下部エリア：左に鉛筆ボタン、右に×ボタン
@@ -596,8 +630,7 @@ class AddModeOverlay(QWidget):
 
     def paintEvent(self, event):
         p = QPainter(self)
-        alpha = 230 if self._drag_over else 210
-        p.fillRect(self.rect(), QColor(20, 20, 20, alpha))
+        p.fillRect(self.rect(), QColor(20, 20, 20, 210))
         p.end()
 
     def dragEnterEvent(self, event: QDragEnterEvent):
@@ -605,17 +638,17 @@ class AddModeOverlay(QWidget):
             if url.isLocalFile() and os.path.isdir(url.toLocalFile()):
                 event.acceptProposedAction()
                 self._drag_over = True
-                self.update()
+                self._drop_zone.set_hover(True)
                 return
         event.ignore()
 
     def dragLeaveEvent(self, event):
         self._drag_over = False
-        self.update()
+        self._drop_zone.set_hover(False)
 
     def dropEvent(self, event: QDropEvent):
         self._drag_over = False
-        self.update()
+        self._drop_zone.set_hover(False)
         for url in event.mimeData().urls():
             if url.isLocalFile():
                 path = url.toLocalFile()
