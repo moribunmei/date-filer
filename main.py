@@ -47,6 +47,14 @@ _SVG_FOLDER_TILE = (
     'V8C40 5.8 38.2 4 36 4H20L16 0Z" fill="#FFD55F"/>'
     '</svg>'
 )
+_SVG_DATE_FOLDER_TILE = (
+    '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="32" viewBox="0 0 40 32" fill="none">'
+    '<path d="M16 0H4C1.8 0 0.02 1.8 0.02 4L0 28C0 30.2 1.8 32 4 32H36C38.2 32 40 30.2 40 28'
+    'V8C40 5.8 38.2 4 36 4H20L16 0Z" fill="#FFD55F"/>'
+    '<path d="M18.8095 24V19.0899H14V16.9331H18.8095V12H21.1667V16.9331H26V19.0899H21.1667V24H18.8095Z"'
+    ' fill="white"/>'
+    '</svg>'
+)
 
 
 def _svg_to_pixmap(svg_str: str, size: int, color: str = "#1f1f1f") -> QPixmap:
@@ -150,25 +158,11 @@ def make_tile_folder_pixmap(w: int = 40, h: int = 32, has_plus: bool = False) ->
     px = QPixmap(w, h)
     px.fill(Qt.GlobalColor.transparent)
 
-    svg_data = _SVG_FOLDER_TILE.replace("#FFD55F", FOLDER_YELLOW).encode()
-    renderer = QSvgRenderer(QByteArray(svg_data))
+    svg_str = _SVG_DATE_FOLDER_TILE if has_plus else _SVG_FOLDER_TILE
+    renderer = QSvgRenderer(QByteArray(svg_str.encode()))
     p = QPainter(px)
     p.setRenderHint(QPainter.RenderHint.Antialiasing)
     renderer.render(p)
-
-    if has_plus:
-        p.setPen(Qt.PenStyle.NoPen)
-        br = int(min(w, h) * 0.22)
-        bcx = int(w * 0.25)
-        bcy = int(h * 0.55)
-        p.setBrush(QColor("#E07800"))
-        p.drawEllipse(bcx - br, bcy - br, br * 2, br * 2)
-        p.setBrush(QColor("white"))
-        bl = int(br * 0.56)
-        bt = max(2, int(br * 0.22))
-        p.drawRect(bcx - bl, bcy - bt // 2, bl * 2, bt)
-        p.drawRect(bcx - bt // 2, bcy - bl, bt, bl * 2)
-
     p.end()
     return px
 
