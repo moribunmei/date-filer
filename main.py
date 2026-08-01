@@ -1460,8 +1460,8 @@ class MainWindow(QMainWindow):
         target = entry["path"]
         errors, moved = [], 0
         for p in paths:
-            if not os.path.isfile(p):
-                errors.append(f"{Path(p).name} はファイルではありません")
+            if not os.path.exists(p):
+                errors.append(f"{Path(p).name} が見つかりません")
                 continue
             try:
                 move_file(p, target, use_date)
