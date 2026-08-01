@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DateFiler — ファイルを日付で、すばやく整理。</title>
+<style>
+:root {
+  --acc: #FF7A28;
+  --acc-lt: #FFB070;
+  --acc-glow: rgba(255,122,40,0.18);
+  --bg: #0D0D15;
+  --bg-card: #161622;
+  --bg-card2: #1C1C2C;
+  --border: rgba(255,255,255,0.07);
+  --txt: #EEEEF2;
+  --txt2: #8888A4;
+  --txt3: #44445A;
+  --wh: #FFFFFF;
+  --lt: #F6F6FA;
+  --dk-txt: #181828;
+  --dk-txt2: #555570;
+  --lt-border: rgba(0,0,0,0.07);
+}
+
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{
+  font-family:-apple-system,"Hiragino Kaku Gothic ProN","Yu Gothic","Noto Sans JP",sans-serif;
+  background:var(--bg);color:var(--txt);line-height:1.6;
+}
+
+/* ─── NAV ─── */
+nav{
+  position:sticky;top:0;z-index:100;
+  display:flex;align-items:center;justify-content:space-between;
+  padding:0 48px;height:60px;
+  background:rgba(13,13,21,0.88);
+  backdrop-filter:blur(14px);
+  border-bottom:1px solid var(--border);
+}
+.nav-logo{display:flex;align-items:center;gap:10px;text-decoration:none}
+.nav-icon{
+  width:28px;height:28px;border-radius:7px;
+  background:var(--acc);
+  display:flex;align-items:center;justify-content:center;
+}
+.nav-name{font-size:14px;font-weight:800;letter-spacing:.08em;color:var(--txt)}
+.nav-cta{
+  background:var(--acc);color:#fff;border:none;
+  border-radius:8px;padding:8px 20px;
+  font-size:13px;font-weight:700;cursor:pointer;letter-spacing:.02em;
+  transition:opacity .2s;
+}
+.nav-cta:hover{opacity:.85}
+
+/* ─── HERO ─── */
+.hero-wrap{
+  background:var(--bg);
+  background-image:
+    radial-gradient(ellipse 60% 50% at 15% 0%,rgba(255,122,40,.13) 0%,transparent 100%),
+    radial-gradient(ellipse 40% 40% at 85% 100%,rgba(255,122,40,.07) 0%,transparent 100%);
+  padding:90px 48px 100px;
+}
+.hero{
+  max-width:1140px;margin:0 auto;
+  display:grid;grid-template-columns:1fr 400px;gap:80px;align-items:center;
+}
+.hero-badge{
+  display:inline-flex;align-items:center;gap:8px;
+  border:1px solid var(--acc);border-radius:100px;
+  padding:5px 14px;margin-bottom:20px;
+  font-size:11px;font-weight:700;color:var(--acc);
+  letter-spacing:.06em;text-transform:uppercase;
+}
+.badge-dot{
+  width:6px;height:6px;border-radius:50%;background:var(--acc);
+  animation:pulse 2s ease-in-out infinite;
+}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.hero-cat{
+  font-size:11px;font-weight:700;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--acc);margin-bottom:14px;
+}
+.hero-h1{
+  font-size:clamp(34px,3.8vw,52px);font-weight:900;line-height:1.15;
+  margin-bottom:22px;text-wrap:balance;
+}
+.hero-h1 .hi{color:var(--acc-lt)}
+.hero-desc{
+  font-size:15px;color:var(--txt2);line-height:1.8;
+  max-width:460px;margin-bottom:28px;
+}
+.hero-bullets{
+  list-style:none;margin-bottom:36px;
+  display:flex;flex-direction:column;gap:10px;
+}
+.hero-bullets li{
+  display:flex;align-items:flex-start;gap:10px;
+  font-size:14px;color:var(--txt2);
+}
+.hero-bullets li::before{
+  content:"→";color:var(--acc);font-weight:800;flex-shrink:0;
+}
+.hero-btns{display:flex;gap:12px;flex-wrap:wrap}
+.btn-pri{
+  background:var(--acc);color:#fff;border:none;
+  border-radius:10px;padding:14px 28px;
+  font-size:15px;font-weight:700;cursor:pointer;
+  letter-spacing:.02em;transition:opacity .2s;
+}
+.btn-pri:hover{opacity:.85}
+.btn-sec{
+  background:transparent;
+  border:1px solid var(--border);color:var(--txt2);
+  border-radius:10px;padding:14px 28px;
+  font-size:15px;font-weight:600;cursor:pointer;
+  transition:border-color .2s;
+}
+.btn-sec:hover{border-color:rgba(255,255,255,.2)}
+
+/* Flow cards */
+.flow{display:flex;flex-direction:column;gap:0}
+.flow-card{
+  background:var(--bg-card);
+  border:1px solid var(--border);
+  border-radius:12px;padding:16px 18px;
+  display:flex;align-items:flex-start;gap:14px;
+}
+.flow-icon{
+  width:38px;height:38px;border-radius:9px;
+  background:var(--acc-glow);
+  display:flex;align-items:center;justify-content:center;
+  flex-shrink:0;color:var(--acc);
+}
+.flow-title{font-size:13px;font-weight:700;color:var(--txt);margin-bottom:3px}
+.flow-sub{font-size:11px;color:var(--txt2);line-height:1.5}
+.flow-arrow{
+  text-align:center;padding:6px 0;
+  color:var(--acc);font-size:18px;
+}
+.tile-badges{display:flex;gap:8px;margin-top:22px;flex-wrap:wrap}
+.tile-badge{
+  padding:5px 12px;border-radius:100px;
+  font-size:11px;font-weight:700;letter-spacing:.04em;
+}
+.tb-move{background:rgba(255,122,40,.2);color:var(--acc)}
+.tb-link{background:rgba(100,180,255,.14);color:#80C8FF}
+.tb-app{background:rgba(80,210,140,.12);color:#60D090}
+
+/* ─── SECTION BASE ─── */
+.sec-wh{background:var(--wh);padding:96px 48px}
+.sec-lt{background:var(--lt);padding:96px 48px}
+.sec-dk{background:var(--bg);padding:96px 48px}
+
+.sec-head{text-align:center;margin-bottom:60px}
+.sec-en{
+  font-size:clamp(26px,2.8vw,38px);font-weight:900;
+  letter-spacing:-.01em;margin-bottom:8px;
+}
+.sec-wh .sec-en,.sec-lt .sec-en{color:var(--dk-txt)}
+.sec-dk .sec-en{color:var(--txt)}
+.sec-ja{font-size:12px;letter-spacing:.06em;color:var(--dk-txt2)}
+.sec-dk .sec-ja{color:var(--txt2)}
+.sec-bar{
+  width:36px;height:2px;background:var(--acc);
+  margin:14px auto 0;
+}
+
+/* ─── FEATURES ─── */
+.feat-grid{
+  display:grid;grid-template-columns:repeat(3,1fr);
+  max-width:1100px;margin:0 auto;
+  border:1px solid var(--lt-border);border-radius:2px;overflow:hidden;
+}
+.feat-card{
+  background:var(--wh);padding:36px 28px;
+  border-right:1px solid var(--lt-border);
+  border-bottom:1px solid var(--lt-border);
+}
+.feat-card:nth-child(3n){border-right:none}
+.feat-card:nth-child(4),.feat-card:nth-child(5),.feat-card:nth-child(6){border-bottom:none}
+.feat-icon{color:var(--acc);margin-bottom:18px}
+.feat-title{font-size:15px;font-weight:800;color:var(--dk-txt);margin-bottom:10px}
+.feat-desc{font-size:13px;color:var(--dk-txt2);line-height:1.75}
+
+/* ─── HOW TO USE ─── */
+.steps{
+  display:grid;grid-template-columns:repeat(3,1fr);
+  gap:40px;max-width:960px;margin:0 auto;
+}
+.step-card{text-align:center}
+.step-num{
+  width:48px;height:48px;border-radius:50%;
+  background:var(--acc);color:#fff;
+  font-size:20px;font-weight:900;
+  display:flex;align-items:center;justify-content:center;
+  margin:0 auto 18px;
+}
+.step-title{font-size:16px;font-weight:800;color:var(--dk-txt);margin-bottom:10px}
+.step-desc{font-size:13px;color:var(--dk-txt2);line-height:1.75}
+
+/* ─── TILE TYPES ─── */
+.types-grid{
+  display:grid;grid-template-columns:repeat(3,1fr);
+  gap:20px;max-width:1100px;margin:0 auto;
+}
+.type-card{
+  border:1px solid var(--lt-border);border-radius:16px;
+  padding:32px 28px;background:var(--wh);
+}
+.type-label{
+  display:inline-block;border-radius:5px;
+  padding:4px 10px;font-size:11px;font-weight:700;
+  letter-spacing:.04em;margin-bottom:16px;
+}
+.tl-move{background:rgba(255,122,40,.1);color:#FF7A28}
+.tl-link{background:rgba(60,150,255,.1);color:#3C96FF}
+.tl-app{background:rgba(50,200,110,.1);color:#32C86E}
+.type-name{font-size:20px;font-weight:900;color:var(--dk-txt);margin-bottom:8px}
+.type-sub{font-size:13px;color:var(--dk-txt2);line-height:1.65;margin-bottom:22px}
+.type-mock{
+  background:var(--lt);border-radius:10px;
+  padding:16px;margin-bottom:20px;
+  display:flex;flex-direction:column;gap:6px;
+}
+.mock-tile{
+  border-radius:8px;padding:10px 12px;
+  display:flex;align-items:center;gap:10px;
+  font-size:12px;font-weight:600;
+}
+.mt-move{background:#FF7A28;color:#fff}
+.mt-link{background:rgba(0,0,0,.08);color:var(--dk-txt)}
+.mt-app{background:rgba(0,0,0,.06);color:var(--dk-txt)}
+.type-feats{list-style:none;display:flex;flex-direction:column;gap:7px}
+.type-feats li{
+  font-size:13px;color:var(--dk-txt2);
+  display:flex;align-items:center;gap:8px;
+}
+.type-feats li::before{
+  content:"";width:4px;height:4px;border-radius:50%;
+  background:var(--acc);flex-shrink:0;opacity:.7;
+}
+
+/* ─── UPDATES ─── */
+.updates-list{
+  list-style:none;max-width:640px;margin:0 auto;
+}
+.upd-item{
+  display:flex;gap:24px;padding:22px 0;
+  border-bottom:1px solid var(--lt-border);
+}
+.upd-item:first-child{border-top:1px solid var(--lt-border)}
+.upd-meta{flex-shrink:0;width:120px}
+.upd-date{font-size:11px;color:var(--dk-txt2);font-variant-numeric:tabular-nums;letter-spacing:.04em;margin-bottom:3px}
+.upd-ver{font-size:14px;font-weight:800;color:var(--dk-txt);font-variant-numeric:tabular-nums}
+.upd-tag{
+  display:inline-block;padding:2px 8px;border-radius:4px;
+  font-size:11px;font-weight:700;
+  background:rgba(255,122,40,.1);color:var(--acc);
+  margin-bottom:6px;
+}
+.upd-body{font-size:14px;color:var(--dk-txt2);line-height:1.65}
+
+/* ─── CTA ─── */
+.cta-wrap{
+  background:var(--bg);
+  background-image:radial-gradient(ellipse 60% 60% at 50% 0%,rgba(255,122,40,.15) 0%,transparent 70%);
+  text-align:center;padding:120px 48px;
+}
+.cta-h2{
+  font-size:clamp(30px,3.5vw,46px);font-weight:900;
+  color:var(--txt);margin-bottom:16px;
+}
+.cta-sub{
+  font-size:15px;color:var(--txt2);line-height:1.75;
+  max-width:440px;margin:0 auto 36px;
+}
+.cta-btn{
+  background:var(--acc);color:#fff;border:none;
+  border-radius:12px;padding:16px 44px;
+  font-size:16px;font-weight:800;cursor:pointer;
+  letter-spacing:.03em;transition:opacity .2s;
+}
+.cta-btn:hover{opacity:.85}
+
+/* ─── FOOTER ─── */
+footer{
+  background:var(--bg);
+  border-top:1px solid var(--border);
+  padding:28px 48px;
+  display:flex;align-items:center;justify-content:space-between;
+}
+.footer-name{font-size:13px;font-weight:800;letter-spacing:.08em;color:var(--txt)}
+.footer-copy{font-size:12px;color:var(--txt3)}
+
+/* ─── RESPONSIVE ─── */
+@media(max-width:920px){
+  nav,footer{padding:0 24px;height:56px}
+  footer{height:auto;padding:24px}
+  .hero-wrap{padding:60px 24px 80px}
+  .hero{grid-template-columns:1fr;gap:48px}
+  .sec-wh,.sec-lt,.sec-dk{padding:72px 24px}
+  .feat-grid{grid-template-columns:repeat(2,1fr)}
+  .feat-card:nth-child(3n){border-right:1px solid var(--lt-border)}
+  .feat-card:nth-child(2n){border-right:none}
+  .feat-card:nth-child(5),.feat-card:nth-child(6){border-bottom:none}
+  .feat-card:nth-child(4){border-bottom:1px solid var(--lt-border)}
+  .steps{grid-template-columns:1fr;gap:32px}
+  .types-grid{grid-template-columns:1fr}
+}
+@media(max-width:560px){
+  .feat-grid{grid-template-columns:1fr}
+  .feat-card{border-right:none!important}
+  .feat-card:last-child{border-bottom:none}
+}
+</style>
+</head>
+<body>
+
+<!-- ─── NAV ─── -->
+<nav>
+  <a href="#" class="nav-logo">
+    <div class="nav-icon">
+      <svg width="15" height="13" viewBox="0 0 15 13" fill="none"><path d="M5.5 0H1C.45 0 0 .45 0 1v11c0 .55.45 1 1 1h13c.55 0 1-.45 1-1V3c0-.55-.45-1-1-1H7.5L5.5 0Z" fill="white"/></svg>
+    </div>
+    <span class="nav-name">DATEFILER</span>
+  </a>
+  <button class="nav-cta">ダウンロード</button>
+</nav>
+
+<!-- ─── HERO ─── -->
+<div class="hero-wrap">
+  <div class="hero">
+    <div>
+      <div class="hero-badge">
+        <span class="badge-dot"></span>
+        v1.0 公開中 — Windows 対応
+      </div>
+      <p class="hero-cat">Windows デスクトップアプリ × ファイル整理ツール</p>
+      <h1 class="hero-h1">ファイルを、<br>日付ごとに<br><span class="hi">すばやく整理。</span></h1>
+      <p class="hero-desc">タイルにドロップするだけで日付フォルダへ自動移動。よく使うフォルダ・アプリへのショートカットも1クリックで即起動。</p>
+      <ul class="hero-bullets">
+        <li>ドラッグ＆ドロップで日付フォルダへ即時移動</li>
+        <li>ファイル・フォルダ・アプリのショートカットをタイル管理</li>
+        <li>追加モードでD&amp;Dするだけの直感的な登録</li>
+        <li>編集モードでタイルを自由に並べ替え</li>
+      </ul>
+      <div class="hero-btns">
+        <button class="btn-pri">EXEをダウンロード</button>
+        <button class="btn-sec">GitHubで見る</button>
+      </div>
+    </div>
+    <div>
+      <div class="flow">
+        <div class="flow-card">
+          <div class="flow-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><line x1="12" y1="11" x2="12" y2="17"/><polyline points="9,14 12,17 15,14"/></svg>
+          </div>
+          <div>
+            <p class="flow-title">追加モードでD&amp;D</p>
+            <p class="flow-sub">フォルダやアプリをオーバーレイにドロップして登録</p>
+          </div>
+        </div>
+        <div class="flow-arrow">↓</div>
+        <div class="flow-card">
+          <div class="flow-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+          </div>
+          <div>
+            <p class="flow-title">タイルに自動登録</p>
+            <p class="flow-sub">名前を設定して保存するとタイルとして表示される</p>
+          </div>
+        </div>
+        <div class="flow-arrow">↓</div>
+        <div class="flow-card">
+          <div class="flow-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+          </div>
+          <div>
+            <p class="flow-title">クリックで即アクセス</p>
+            <p class="flow-sub">フォルダを開く・アプリを起動・ファイルを日付フォルダへ移動</p>
+          </div>
+        </div>
+      </div>
+      <div class="tile-badges">
+        <span class="tile-badge tb-move">移動タイル</span>
+        <span class="tile-badge tb-link">リンクタイル</span>
+        <span class="tile-badge tb-app">アプリタイル</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ─── FEATURES ─── -->
+<section class="sec-wh">
+  <div class="sec-head">
+    <h2 class="sec-en">Features</h2>
+    <p class="sec-ja">— 主な機能 —</p>
+    <div class="sec-bar"></div>
+  </div>
+  <div class="feat-grid">
+    <div class="feat-card">
+      <div class="feat-icon">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><line x1="12" y1="11" x2="12" y2="17"/><polyline points="9,14 12,17 15,14"/></svg>
+      </div>
+      <p class="feat-title">日付フォルダへ即時移動</p>
+      <p class="feat-desc">ファイルを移動タイルにドロップするだけで、自動的に今日の日付フォルダへ整理。手作業のリネーム・移動が不要になります。</p>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+      </div>
+      <p class="feat-title">ファイル・フォルダ ショートカット</p>
+      <p class="feat-desc">よく開くフォルダやファイルのパスをリンクタイルとして登録。クリック一発でエクスプローラーが開きます。</p>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/><polygon points="10,8 16,11 10,14" fill="currentColor" stroke="none"/></svg>
+      </div>
+      <p class="feat-title">アプリ起動ショートカット</p>
+      <p class="feat-desc">EXEファイルをドロップするだけでアプリタイルを作成。クリックで任意のアプリを即起動できます。</p>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="8" y1="4" x2="8" y2="9"/><line x1="16" y1="15" x2="16" y2="20"/><polyline points="5,6 8,4 11,6"/><polyline points="13,18 16,20 19,18"/></svg>
+      </div>
+      <p class="feat-title">D&amp;Dで直感的な並べ替え</p>
+      <p class="feat-desc">編集モードに切り替えてタイルをドラッグ＆ドロップするだけで、自由にレイアウトを変更できます。</p>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><path d="M8 15 L12 11 L16 15"/></svg>
+      </div>
+      <p class="feat-title">フォルダもまとめて移動</p>
+      <p class="feat-desc">ファイルだけでなく、フォルダごと移動タイルにドロップして日付フォルダへ一括整理できます。</p>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+      </div>
+      <p class="feat-title">シンプルな追加・編集・削除</p>
+      <p class="feat-desc">「+」ボタンで追加モード、タイルのクリックで編集ダイアログ。名前やパスの変更・削除が直感的に操作できます。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ─── HOW TO USE ─── -->
+<section class="sec-lt">
+  <div class="sec-head">
+    <h2 class="sec-en">How to Use</h2>
+    <p class="sec-ja">— 使い方 —</p>
+    <div class="sec-bar"></div>
+  </div>
+  <div class="steps">
+    <div class="step-card">
+      <div class="step-num">1</div>
+      <p class="step-title">アプリを起動</p>
+      <p class="step-desc">DateFiler.exe を起動すると、登録済みのタイルが一覧表示されます。初回は空の状態からスタートします。</p>
+    </div>
+    <div class="step-card">
+      <div class="step-num">2</div>
+      <p class="step-title">タイルを追加</p>
+      <p class="step-desc">右下の「+」ボタンで追加モードに切り替え。フォルダ・アプリをオーバーレイにD&amp;Dして登録します。</p>
+    </div>
+    <div class="step-card">
+      <div class="step-num">3</div>
+      <p class="step-title">タイルで整理・起動</p>
+      <p class="step-desc">移動タイルへファイルをドロップして日付整理、リンク・アプリタイルをクリックして即アクセス。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ─── TILE TYPES ─── -->
+<section class="sec-wh">
+  <div class="sec-head">
+    <h2 class="sec-en">Tile Types</h2>
+    <p class="sec-ja">— タイルの種類 —</p>
+    <div class="sec-bar"></div>
+  </div>
+  <div class="types-grid">
+    <div class="type-card">
+      <span class="type-label tl-move">Move Tile</span>
+      <p class="type-name">移動タイル</p>
+      <p class="type-sub">ファイル・フォルダをドロップすると、指定した日付フォルダへ自動で移動します。日次の整理作業を劇的に短縮。</p>
+      <div class="type-mock">
+        <div class="mock-tile mt-move">
+          <svg width="16" height="14" viewBox="0 0 16 14" fill="none"><path d="M6 0H1C.45 0 0 .45 0 1v11c0 .55.45 1 1 1h14c.55 0 1-.45 1-1V3c0-.55-.45-1-1-1H8L6 0Z" fill="rgba(255,255,255,.9)"/><line x1="8" y1="5" x2="8" y2="10" stroke="white" stroke-width="1.5"/><polyline points="6,8 8,10 10,8" stroke="white" stroke-width="1.5" fill="none"/></svg>
+          今日 2026.08.01
+        </div>
+      </div>
+      <ul class="type-feats">
+        <li>今日・昨日・任意の日付フォルダに対応</li>
+        <li>ファイルだけでなくフォルダもまとめて移動</li>
+        <li>カスタム名・パスを自由に設定</li>
+      </ul>
+    </div>
+    <div class="type-card">
+      <span class="type-label tl-link">Link Tile</span>
+      <p class="type-name">リンクタイル</p>
+      <p class="type-sub">よく使うフォルダやファイルへのショートカットをタイルとして登録。クリックでエクスプローラーが即座に開きます。</p>
+      <div class="type-mock">
+        <div class="mock-tile mt-link">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#3C96FF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+          プロジェクトフォルダ
+        </div>
+        <div class="mock-tile mt-link" style="opacity:.5">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#555" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+          デスクトップ
+        </div>
+      </div>
+      <ul class="type-feats">
+        <li>ファイル・フォルダ両方に対応</li>
+        <li>クリックでエクスプローラーを即オープン</li>
+        <li>D&amp;Dで追加モードから簡単登録</li>
+      </ul>
+    </div>
+    <div class="type-card">
+      <span class="type-label tl-app">App Tile</span>
+      <p class="type-name">アプリタイル</p>
+      <p class="type-sub">EXEファイルをドロップするだけでアプリタイルを作成。Windows のシステムアイコンが自動表示されます。</p>
+      <div class="type-mock">
+        <div class="mock-tile mt-app">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#32C86E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+          Visual Studio Code
+        </div>
+        <div class="mock-tile mt-app" style="opacity:.5">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#555" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+          Slack
+        </div>
+      </div>
+      <ul class="type-feats">
+        <li>EXEをD&amp;Dするだけで自動登録</li>
+        <li>カスタム表示名を設定可能</li>
+        <li>クリックでアプリを即起動</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ─── UPDATES ─── -->
+<section class="sec-lt">
+  <div class="sec-head">
+    <h2 class="sec-en">Updates</h2>
+    <p class="sec-ja">— アップデート履歴 —</p>
+    <div class="sec-bar"></div>
+  </div>
+  <ul class="updates-list">
+    <li class="upd-item">
+      <div class="upd-meta">
+        <p class="upd-date">2026.08.01</p>
+        <p class="upd-ver">v1.0.0</p>
+      </div>
+      <div>
+        <span class="upd-tag">Feat</span>
+        <p class="upd-body">アプリ起動タイル機能を追加。EXEをドロップしてタイル登録、クリックでアプリを即起動できる第3セクションを実装。</p>
+      </div>
+    </li>
+    <li class="upd-item">
+      <div class="upd-meta">
+        <p class="upd-date">2026.07.28</p>
+        <p class="upd-ver">v0.9.0</p>
+      </div>
+      <div>
+        <span class="upd-tag">Feat</span>
+        <p class="upd-body">フォルダのD&amp;D移動に対応。ファイルだけでなく、フォルダごと移動タイルにドロップして日付フォルダへ整理可能に。</p>
+      </div>
+    </li>
+    <li class="upd-item">
+      <div class="upd-meta">
+        <p class="upd-date">2026.07.20</p>
+        <p class="upd-ver">v0.8.0</p>
+      </div>
+      <div>
+        <span class="upd-tag">Design</span>
+        <p class="upd-body">追加モードのオーバーレイデザインをリニューアル。Figmaデザインに合わせた白い点線枠と直感的なUIに改善。</p>
+      </div>
+    </li>
+  </ul>
+</section>
+
+<!-- ─── CTA ─── -->
+<div class="cta-wrap">
+  <h2 class="cta-h2">今すぐ整理をはじめよう。</h2>
+  <p class="cta-sub">DateFiler は無料で利用できます。EXEをダウンロードしてすぐに使いはじめられます。</p>
+  <button class="cta-btn">無料でダウンロード</button>
+</div>
+
+<!-- ─── FOOTER ─── -->
+<footer>
+  <span class="footer-name">DATEFILER</span>
+  <span class="footer-copy">© 2026 moribunmei</span>
+</footer>
+
+</body>
+</html>
