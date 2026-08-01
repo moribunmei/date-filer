@@ -12,8 +12,9 @@ from PyQt6.QtWidgets import (
     QPushButton, QListWidget, QLabel, QFileDialog, QMessageBox,
     QSystemTrayIcon, QMenu, QDialog, QFrame,
     QLineEdit, QDialogButtonBox, QCheckBox, QSizeGrip,
+    QFileIconProvider,
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QSize, QPointF, QByteArray, QMimeData
+from PyQt6.QtCore import Qt, pyqtSignal, QSize, QPointF, QByteArray, QMimeData, QFileInfo
 from PyQt6.QtGui import (
     QIcon, QDragEnterEvent, QDropEvent, QColor, QPixmap,
     QPainter, QPen, QPalette, QPolygonF, QDrag,
@@ -94,8 +95,9 @@ def load_settings() -> dict:
                 entry.setdefault("allow_filemove", True)
                 entry.setdefault("click_count", 0)
                 entry.setdefault("move_count", 0)
+        data.setdefault("apps", [])
         return data
-    return {"folders": []}
+    return {"folders": [], "apps": []}
 
 
 def save_settings(settings: dict):
@@ -506,6 +508,7 @@ class FolderTile(QFrame):
 
 class AddModeOverlay(QWidget):
     folder_dropped = pyqtSignal(str)
+    app_dropped = pyqtSignal(str)
     close_requested = pyqtSignal()
     edit_requested = pyqtSignal()
 
@@ -619,9 +622,14 @@ class AddModeOverlay(QWidget):
         )
         p.end()
 
+    @staticmethod
+    def _is_exe(path: str) -> bool:
+        return os.path.isfile(path) and path.lower().endswith(".exe")
+
     def dragEnterEvent(self, event: QDragEnterEvent):
         for url in event.mimeData().urls():
-            if url.isLocalFile() and os.path.isdir(url.toLocalFile()):
+            p = url.toLocalFile()
+            if url.isLocalFile() and (os.path.isdir(p) or self._is_exe(p)):
                 event.acceptProposedAction()
                 self._drag_over = True
                 self.update()
@@ -640,6 +648,9 @@ class AddModeOverlay(QWidget):
                 path = url.toLocalFile()
                 if os.path.isdir(path):
                     self.folder_dropped.emit(path)
+                    break
+                if self._is_exe(path):
+                    self.app_dropped.emit(path)
                     break
 
 
@@ -977,6 +988,247 @@ class SettingsDialog(QDialog):
             self._refresh_list()
 
 
+# ---- アプリタイル ----------------------------------------------------------
+
+_MIME_APP = "application/x-datefiler-app"
+
+_TILE_APP_NORMAL = (
+    "QFrame { background: #FBF8F8; border-radius: 6px; border: none; }"
+)
+_TILE_APP_HOVER = (
+    "QFrame { background: #F0EDEC; border-radius: 6px; border: none; }"
+)
+_TILE_APP_EDIT = (
+    "QFrame { background: white; border-radius: 6px;"
+    " border: 1.5px solid #CCCCCC; }"
+)
+_TILE_APP_DROP_BEFORE = (
+    "QFrame { background: white; border-radius: 6px;"
+    " border-left: 3px solid #1976D2; border-top: 1.5px solid #CCCCCC;"
+    " border-right: 1.5px solid #CCCCCC; border-bottom: 1.5px solid #CCCCCC; }"
+)
+_TILE_APP_DROP_AFTER = (
+    "QFrame { background: white; border-radius: 6px;"
+    " border-right: 3px solid #1976D2; border-top: 1.5px solid #CCCCCC;"
+    " border-left: 1.5px solid #CCCCCC; border-bottom: 1.5px solid #CCCCCC; }"
+)
+
+
+class AppTile(QFrame):
+    edit_requested = pyqtSignal(dict)
+    reorder_requested = pyqtSignal(str, str, bool)  # from_path, to_path, insert_after
+
+    def __init__(self, entry: dict):
+        super().__init__()
+        self.app_entry = entry
+        self._edit_mode = False
+        self.setFixedSize(TILE_W, TILE_H_LINK)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setStyleSheet(_TILE_APP_NORMAL)
+
+        lyt = QHBoxLayout(self)
+        lyt.setContentsMargins(6, 0, 6, 0)
+        lyt.setSpacing(6)
+
+        self._icon_lbl = QLabel()
+        self._icon_lbl.setFixedSize(22, 22)
+        self._icon_lbl.setStyleSheet("border: none; background: transparent;")
+        self._icon_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._refresh_icon()
+        lyt.addWidget(self._icon_lbl)
+
+        path = entry.get("path", "")
+        raw_name = entry.get("name") or Path(path).stem
+        font = QFont()
+        font.setPointSize(10)
+        fm = QFontMetrics(font)
+        inner_w = TILE_W - 6 - 22 - 6 - 6
+        display = fm.elidedText(raw_name, Qt.TextElideMode.ElideRight, inner_w)
+        self._label = QLabel(display)
+        self._label.setStyleSheet(
+            "color: #1A1A1A; font-size: 10px; border: none; background: transparent;"
+        )
+        lyt.addWidget(self._label, 1)
+
+    def _refresh_icon(self):
+        path = self.app_entry.get("path", "")
+        if os.path.isfile(path):
+            provider = QFileIconProvider()
+            icon = provider.icon(QFileInfo(path))
+            self._icon_lbl.setPixmap(icon.pixmap(20, 20))
+        else:
+            self._icon_lbl.setText("▶")
+
+    def set_edit_mode(self, enabled: bool):
+        self._edit_mode = enabled
+        self.setAcceptDrops(enabled)
+        self.setCursor(Qt.CursorShape.SizeAllCursor if enabled else Qt.CursorShape.PointingHandCursor)
+        self.setStyleSheet(_TILE_APP_EDIT if enabled else _TILE_APP_NORMAL)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_start = event.position()
+
+    def mouseMoveEvent(self, event):
+        if (self._edit_mode and event.buttons() == Qt.MouseButton.LeftButton
+                and hasattr(self, "_drag_start")
+                and (event.position() - self._drag_start).manhattanLength() > 8):
+            drag = QDrag(self)
+            mime = QMimeData()
+            mime.setData(_MIME_APP, self.app_entry["path"].encode())
+            drag.setMimeData(mime)
+            drag.exec(Qt.DropAction.MoveAction)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton and not self._edit_mode:
+            path = self.app_entry.get("path", "")
+            if path and os.path.isfile(path):
+                os.startfile(path)
+        elif event.button() == Qt.MouseButton.LeftButton and self._edit_mode:
+            if (event.position() - getattr(self, "_drag_start", event.position())).manhattanLength() < 5:
+                self.edit_requested.emit(self.app_entry)
+
+    def enterEvent(self, event):
+        if not self._edit_mode:
+            self.setStyleSheet(_TILE_APP_HOVER)
+
+    def leaveEvent(self, event):
+        if not self._edit_mode:
+            self.setStyleSheet(_TILE_APP_NORMAL)
+
+    def dragEnterEvent(self, event: QDragEnterEvent):
+        if self._edit_mode and event.mimeData().hasFormat(_MIME_APP):
+            if bytes(event.mimeData().data(_MIME_APP)).decode() != self.app_entry["path"]:
+                event.acceptProposedAction()
+                x = event.position().x()
+                self.setStyleSheet(_TILE_APP_DROP_AFTER if x > self.width() / 2 else _TILE_APP_DROP_BEFORE)
+                return
+        event.ignore()
+
+    def dragMoveEvent(self, event):
+        if self._edit_mode and event.mimeData().hasFormat(_MIME_APP):
+            x = event.position().x()
+            self.setStyleSheet(_TILE_APP_DROP_AFTER if x > self.width() / 2 else _TILE_APP_DROP_BEFORE)
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragLeaveEvent(self, event):
+        self.setStyleSheet(_TILE_APP_EDIT)
+
+    def dropEvent(self, event: QDropEvent):
+        self.setStyleSheet(_TILE_APP_EDIT)
+        from_path = bytes(event.mimeData().data(_MIME_APP)).decode()
+        to_path = self.app_entry["path"]
+        if from_path != to_path:
+            insert_after = event.position().x() > self.width() / 2
+            self.reorder_requested.emit(from_path, to_path, insert_after)
+        event.acceptProposedAction()
+
+
+class AppEditDialog(QDialog):
+    def __init__(self, entry: dict, parent=None):
+        super().__init__(parent)
+        self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
+        self.result_entry = None
+        self.deleted = False
+        self._entry = entry
+
+        self.setFixedWidth(480)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setStyleSheet("QDialog { background: white; border-radius: 12px; }")
+
+        lyt = QVBoxLayout(self)
+        lyt.setContentsMargins(24, 20, 24, 24)
+        lyt.setSpacing(16)
+
+        # タイトル行
+        title_row = QHBoxLayout()
+        title_lbl = QLabel("アプリの編集")
+        title_lbl.setStyleSheet("font-size: 15px; font-weight: bold; color: #1A1A1A;")
+        title_row.addWidget(title_lbl)
+        title_row.addStretch()
+        del_btn = QPushButton("削除する")
+        del_btn.setStyleSheet(
+            "QPushButton { background: #E53935; color: white; border-radius: 6px;"
+            " padding: 4px 12px; font-size: 12px; font-weight: bold; border: none; }"
+            "QPushButton:hover { background: #B71C1C; }"
+        )
+        del_btn.clicked.connect(self._delete)
+        title_row.addWidget(del_btn)
+        lyt.addLayout(title_row)
+
+        # パス
+        lyt.addWidget(QLabel("アプリパス："))
+        path_row = QHBoxLayout()
+        self._path = QLineEdit(entry.get("path", ""))
+        self._path.setPlaceholderText("C:/path/to/app.exe")
+        self._path.setStyleSheet(
+            "QLineEdit { border: 1px solid #CCCCCC; border-radius: 6px;"
+            " padding: 6px 10px; font-size: 12px; }"
+        )
+        path_row.addWidget(self._path)
+        browse_btn = QPushButton("参照…")
+        browse_btn.setStyleSheet(
+            "QPushButton { background: #F0F0F0; border: 1px solid #CCCCCC;"
+            " border-radius: 6px; padding: 6px 10px; font-size: 12px; }"
+            "QPushButton:hover { background: #E0E0E0; }"
+        )
+        browse_btn.clicked.connect(self._browse)
+        path_row.addWidget(browse_btn)
+        lyt.addLayout(path_row)
+
+        # 表示名
+        lyt.addWidget(QLabel("表示名（任意）："))
+        self._name = QLineEdit(entry.get("name", ""))
+        self._name.setPlaceholderText("省略するとファイル名で表示されます。")
+        self._name.setStyleSheet(
+            "QLineEdit { border: 1px solid #CCCCCC; border-radius: 6px;"
+            " padding: 6px 10px; font-size: 12px; }"
+        )
+        lyt.addWidget(self._name)
+
+        # ボタン
+        btn_row = QHBoxLayout()
+        save_btn = QPushButton("保存する")
+        save_btn.setStyleSheet(
+            "QPushButton { background: #1A1A1A; color: white; border-radius: 8px;"
+            " padding: 10px 24px; font-size: 13px; font-weight: bold; border: none; }"
+            "QPushButton:hover { background: #333333; }"
+        )
+        save_btn.clicked.connect(self._accept)
+        cancel_btn = QPushButton("キャンセル")
+        cancel_btn.setStyleSheet(
+            "QPushButton { background: white; color: #1A1A1A; border-radius: 8px;"
+            " padding: 10px 24px; font-size: 13px; border: 1px solid #CCCCCC; }"
+            "QPushButton:hover { background: #F5F5F5; }"
+        )
+        cancel_btn.clicked.connect(self.reject)
+        btn_row.addWidget(save_btn)
+        btn_row.addStretch()
+        btn_row.addWidget(cancel_btn)
+        lyt.addLayout(btn_row)
+
+    def _browse(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "アプリを選択", "", "実行ファイル (*.exe);;すべてのファイル (*.*)"
+        )
+        if path:
+            self._path.setText(path)
+
+    def _accept(self):
+        path = self._path.text().strip()
+        if not path or not os.path.isfile(path):
+            QMessageBox.warning(self, "エラー", "有効なexeファイルのパスを指定してください。")
+            return
+        self.result_entry = {"path": path, "name": self._name.text().strip()}
+        self.accept()
+
+    def _delete(self):
+        self.deleted = True
+        self.accept()
+
+
 # ---- タイルグリッド --------------------------------------------------------
 
 class TileGrid(QWidget):
@@ -985,14 +1237,16 @@ class TileGrid(QWidget):
     _SECTION_GAP = 28  # ファイル移動セクションとリンクセクションの間隔
 
     reorder_requested = pyqtSignal(str, str, bool, bool)  # from_path, to_path, insert_after, is_filemove
+    app_reorder_requested = pyqtSignal(str, str, bool)    # from_path, to_path, insert_after
 
     def __init__(self, tiles_move: list, tiles_link: list = None,
-                 bg_color: str = BG_NORMAL, empty_text: str = ""):
+                 tiles_app: list = None, bg_color: str = BG_NORMAL, empty_text: str = ""):
         super().__init__()
         self.setAutoFillBackground(True)
         self._tiles_move = tiles_move
         self._tiles_link = tiles_link or []
-        self._all_tiles = tiles_move + self._tiles_link
+        self._tiles_app = tiles_app or []
+        self._all_tiles = tiles_move + self._tiles_link + self._tiles_app
         self._edit_mode = False
         self.set_bg(bg_color)
         for t in self._all_tiles:
@@ -1012,11 +1266,20 @@ class TileGrid(QWidget):
     def set_edit_mode(self, enabled: bool):
         self._edit_mode = enabled
         self.setAcceptDrops(enabled)
+        for t in self._tiles_app:
+            t.set_edit_mode(enabled)
 
     # ---- タイルD&Dをグリッドレベルで処理 --------------------------------
     def _tile_at(self, x: float, y: float, is_filemove: bool):
         tiles = self._tiles_move if is_filemove else self._tiles_link
         for tile in tiles:
+            if (tile.x() <= x < tile.x() + tile.width()
+                    and tile.y() <= y < tile.y() + tile.height()):
+                return tile
+        return None
+
+    def _app_tile_at(self, x: float, y: float):
+        for tile in self._tiles_app:
             if (tile.x() <= x < tile.x() + tile.width()
                     and tile.y() <= y < tile.y() + tile.height()):
                 return tile
@@ -1028,50 +1291,84 @@ class TileGrid(QWidget):
                 tile.setStyleSheet(_TILE_EDIT)
 
     def dragEnterEvent(self, event: QDragEnterEvent):
-        if self._edit_mode and event.mimeData().hasFormat("application/x-datefiler-tile"):
+        mime = event.mimeData()
+        if self._edit_mode and (mime.hasFormat("application/x-datefiler-tile")
+                                or mime.hasFormat(_MIME_APP)):
             event.acceptProposedAction()
             return
         event.ignore()
 
     def dragMoveEvent(self, event):
-        if not (self._edit_mode and event.mimeData().hasFormat("application/x-datefiler-tile")):
+        mime = event.mimeData()
+        if not self._edit_mode:
             event.ignore()
             return
-        from_path, from_filemove = FolderTile._parse_tile_mime(
-            bytes(event.mimeData().data("application/x-datefiler-tile"))
-        )
-        pos = event.position()
-        target = self._tile_at(pos.x(), pos.y(), from_filemove)
-        self._clear_indicators(from_filemove)
-        if target and target.folder_entry.get("path") != from_path:
-            insert_after = pos.x() > target.x() + target.width() / 2
-            target.setStyleSheet(_TILE_DROP_AFTER if insert_after else _TILE_DROP_BEFORE)
-        event.acceptProposedAction()
+        if mime.hasFormat("application/x-datefiler-tile"):
+            from_path, from_filemove = FolderTile._parse_tile_mime(
+                bytes(mime.data("application/x-datefiler-tile"))
+            )
+            pos = event.position()
+            target = self._tile_at(pos.x(), pos.y(), from_filemove)
+            self._clear_indicators(from_filemove)
+            if target and target.folder_entry.get("path") != from_path:
+                insert_after = pos.x() > target.x() + target.width() / 2
+                target.setStyleSheet(_TILE_DROP_AFTER if insert_after else _TILE_DROP_BEFORE)
+            event.acceptProposedAction()
+        elif mime.hasFormat(_MIME_APP):
+            from_path = bytes(mime.data(_MIME_APP)).decode()
+            pos = event.position()
+            target = self._app_tile_at(pos.x(), pos.y())
+            for t in self._tiles_app:
+                t.setStyleSheet(_TILE_APP_EDIT)
+            if target and target.app_entry["path"] != from_path:
+                insert_after = pos.x() > target.x() + target.width() / 2
+                target.setStyleSheet(_TILE_APP_DROP_AFTER if insert_after else _TILE_APP_DROP_BEFORE)
+            event.acceptProposedAction()
+        else:
+            event.ignore()
 
     def dragLeaveEvent(self, event):
-        for tile in self._all_tiles:
+        for tile in self._tiles_move + self._tiles_link:
             if tile._edit_mode:
                 tile.setStyleSheet(_TILE_EDIT)
+        for tile in self._tiles_app:
+            tile.setStyleSheet(_TILE_APP_EDIT)
 
     def dropEvent(self, event: QDropEvent):
-        if not (self._edit_mode and event.mimeData().hasFormat("application/x-datefiler-tile")):
+        mime = event.mimeData()
+        if not self._edit_mode:
             event.ignore()
             return
-        from_path, from_filemove = FolderTile._parse_tile_mime(
-            bytes(event.mimeData().data("application/x-datefiler-tile"))
-        )
-        self._clear_indicators(from_filemove)
-        pos = event.position()
-        target = self._tile_at(pos.x(), pos.y(), from_filemove)
-        if target and target.folder_entry.get("path") != from_path:
-            insert_after = pos.x() > target.x() + target.width() / 2
-            self.reorder_requested.emit(from_path, target.folder_entry.get("path"), insert_after, from_filemove)
+        if mime.hasFormat("application/x-datefiler-tile"):
+            from_path, from_filemove = FolderTile._parse_tile_mime(
+                bytes(mime.data("application/x-datefiler-tile"))
+            )
+            self._clear_indicators(from_filemove)
+            pos = event.position()
+            target = self._tile_at(pos.x(), pos.y(), from_filemove)
+            if target and target.folder_entry.get("path") != from_path:
+                insert_after = pos.x() > target.x() + target.width() / 2
+                self.reorder_requested.emit(from_path, target.folder_entry.get("path"), insert_after, from_filemove)
+            else:
+                tiles = self._tiles_move if from_filemove else self._tiles_link
+                if tiles and tiles[-1].folder_entry.get("path") != from_path:
+                    self.reorder_requested.emit(from_path, tiles[-1].folder_entry.get("path"), True, from_filemove)
+            event.acceptProposedAction()
+        elif mime.hasFormat(_MIME_APP):
+            from_path = bytes(mime.data(_MIME_APP)).decode()
+            for t in self._tiles_app:
+                t.setStyleSheet(_TILE_APP_EDIT)
+            pos = event.position()
+            target = self._app_tile_at(pos.x(), pos.y())
+            if target and target.app_entry["path"] != from_path:
+                insert_after = pos.x() > target.x() + target.width() / 2
+                self.app_reorder_requested.emit(from_path, target.app_entry["path"], insert_after)
+            else:
+                if self._tiles_app and self._tiles_app[-1].app_entry["path"] != from_path:
+                    self.app_reorder_requested.emit(from_path, self._tiles_app[-1].app_entry["path"], True)
+            event.acceptProposedAction()
         else:
-            # タイル外（空白エリア）に落とした → セクション末尾へ
-            tiles = self._tiles_move if from_filemove else self._tiles_link
-            if tiles and tiles[-1].folder_entry.get("path") != from_path:
-                self.reorder_requested.emit(from_path, tiles[-1].folder_entry.get("path"), True, from_filemove)
-        event.acceptProposedAction()
+            event.ignore()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -1096,8 +1393,20 @@ class TileGrid(QWidget):
             rows = math.ceil(len(self._tiles_move) / cols)
             y += rows * (TILE_H + self._GAP) - self._GAP + self._SECTION_GAP
 
-        # 下セクション：リンクのみのタイル
+        # 中セクション：リンクのみのタイル
         for i, tile in enumerate(self._tiles_link):
+            r, c = divmod(i, cols)
+            tile.move(
+                self._MARGIN + c * (TILE_W + self._GAP),
+                y + r * (TILE_H_LINK + self._GAP),
+            )
+            tile.show()
+        if self._tiles_link:
+            rows = math.ceil(len(self._tiles_link) / cols)
+            y += rows * (TILE_H_LINK + self._GAP) - self._GAP + self._SECTION_GAP
+
+        # 下セクション：アプリタイル
+        for i, tile in enumerate(self._tiles_app):
             r, c = divmod(i, cols)
             tile.move(
                 self._MARGIN + c * (TILE_W + self._GAP),
@@ -1264,6 +1573,7 @@ class MainWindow(QMainWindow):
         # ---- 追加モードオーバーレイ（central全体を覆う） ----
         self._add_overlay = AddModeOverlay(central)
         self._add_overlay.folder_dropped.connect(self._on_folder_dropped_for_add)
+        self._add_overlay.app_dropped.connect(self._on_app_dropped_for_add)
         self._add_overlay.close_requested.connect(self._exit_add_mode)
         self._add_overlay.edit_requested.connect(self._on_add_overlay_edit)
         self._add_overlay.hide()
@@ -1326,8 +1636,8 @@ class MainWindow(QMainWindow):
     def _rebuild_tiles(self):
         folders = self._sorted_folders()
         self._tiles = []
-        tiles_move = []   # allow_filemove=True  → 上セクション
-        tiles_link = []   # allow_filemove=False → 下セクション
+        tiles_move = []
+        tiles_link = []
 
         for entry in folders:
             tile = FolderTile(entry)
@@ -1340,12 +1650,20 @@ class MainWindow(QMainWindow):
             else:
                 tiles_link.append(tile)
 
+        tiles_app = []
+        for app_entry in self.settings.get("apps", []):
+            atile = AppTile(app_entry)
+            atile.edit_requested.connect(lambda e=app_entry: self._edit_app(e))
+            atile.reorder_requested.connect(self._reorder_app)
+            tiles_app.append(atile)
+
         bg = BG_EDIT if self._in_edit_mode else BG_NORMAL
         self._grid = TileGrid(
-            tiles_move, tiles_link, bg,
+            tiles_move, tiles_link, tiles_app, bg,
             "右下の [+] ボタンからフォルダを追加してください"
         )
         self._grid.reorder_requested.connect(self._reorder_folder)
+        self._grid.app_reorder_requested.connect(self._reorder_app)
         self._container.set_grid(self._grid)
 
         for tile in self._tiles:
@@ -1495,6 +1813,45 @@ class MainWindow(QMainWindow):
             save_settings(self.settings)
             self._rebuild_tiles()
             self._exit_add_mode()
+
+    def _on_app_dropped_for_add(self, path: str):
+        entry = {"path": path, "name": ""}
+        dlg = AppEditDialog(entry=entry, parent=self)
+        if dlg.exec() == QDialog.DialogCode.Accepted and dlg.result_entry:
+            self.settings.setdefault("apps", []).append(dlg.result_entry)
+            save_settings(self.settings)
+            self._rebuild_tiles()
+            self._exit_add_mode()
+
+    def _edit_app(self, entry: dict):
+        dlg = AppEditDialog(entry=entry, parent=self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        apps = self.settings.setdefault("apps", [])
+        idx = next((i for i, a in enumerate(apps) if a["path"] == entry["path"]), -1)
+        if idx < 0:
+            return
+        if dlg.deleted:
+            apps.pop(idx)
+        elif dlg.result_entry:
+            apps[idx] = dlg.result_entry
+        save_settings(self.settings)
+        self._rebuild_tiles()
+
+    def _reorder_app(self, from_path: str, to_path: str, insert_after: bool):
+        apps = self.settings.setdefault("apps", [])
+        from_idx = next((i for i, a in enumerate(apps) if a["path"] == from_path), -1)
+        to_idx = next((i for i, a in enumerate(apps) if a["path"] == to_path), -1)
+        if from_idx < 0 or to_idx < 0 or from_idx == to_idx:
+            return
+        item = apps.pop(from_idx)
+        if from_idx < to_idx:
+            to_idx -= 1
+        if insert_after:
+            to_idx += 1
+        apps.insert(to_idx, item)
+        save_settings(self.settings)
+        self._rebuild_tiles()
 
     def _open_settings(self):
         dlg = SettingsDialog(self.settings, parent=self)
