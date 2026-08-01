@@ -1,0 +1,27 @@
+name: Deploy LP to heteml
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - 'lp/**'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy to heteml via FTP
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_HOST }}
+          username: ${{ secrets.FTP_USER }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          local-dir: ./lp/
+          server-dir: ${{ secrets.FTP_REMOTE_DIR }}
+          protocol: ftp
+          port: 21
