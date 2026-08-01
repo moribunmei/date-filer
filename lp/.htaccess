@@ -1,0 +1,6 @@
+<IfModule mod_headers.c>
+  <FilesMatch "changelog\.json$">
+    Header set Access-Control-Allow-Origin "https://morriscompany.ltd"
+    Header set Access-Control-Allow-Methods "GET"
+  </FilesMatch>
+</IfModule>
