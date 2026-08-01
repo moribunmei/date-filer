@@ -6,6 +6,7 @@ on:
       - master
     paths:
       - 'lp/**'
+  workflow_dispatch:
 
 jobs:
   deploy:
